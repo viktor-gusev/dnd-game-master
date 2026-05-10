@@ -1,0 +1,46 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1020;
+  --panel: #121a33;
+  --text: #f4f1e8;
+  --muted: #aab2d5;
+  --accent: #ffb84d;
+}
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: radial-gradient(circle at top, #1b2850, var(--bg));
+  color: var(--text);
+}
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.panel {
+  background: rgba(18, 26, 51, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 0;
+}
+input, button {
+  font: inherit;
+}
+button {
+  background: var(--accent);
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+}
+input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #394365;
+  background: #0f1730;
+  color: var(--text);
+}
+p, li, label, #status { color: var(--muted); }

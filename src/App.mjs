@@ -41,7 +41,7 @@ export default class App {
    * @param {Fl32_Web_Back_Dto_Source__Factory} deps.sourceFactory
    * @param {Fl32_Web_Back_Config_Runtime__Factory} deps.configFactory
    */
-  constructor({ pipeline, server, staticHandler, sourceFactory, configFactory }) {
+  constructor({ pipeline, server, staticHandler, sourceFactory, configFactory, apiHandler }) {
     let running = false;
     let stoppedBeforeRun = false;
     let done = null;
@@ -62,6 +62,10 @@ export default class App {
       const webRoot = `${projectRoot}/web`;
       const source = sourceFactory.create({ root: webRoot, prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] });
       await staticHandler.init({ sources: [source] });
+      if (apiHandler) {
+        if (typeof pipeline.addHandler === "function") pipeline.addHandler(apiHandler);
+        else pipeline.registerHandler(apiHandler);
+      }
       if (typeof pipeline.addHandler === "function") pipeline.addHandler(staticHandler);
       else pipeline.registerHandler(staticHandler);
       configFactory.configure({ port, type: "http" });
@@ -102,4 +106,5 @@ export const __deps__ = Object.freeze({
   staticHandler: "Fl32_Web_Back_Handler_Static$",
   sourceFactory: "Fl32_Web_Back_Dto_Source__Factory$",
   configFactory: "Fl32_Web_Back_Config_Runtime__Factory$",
+  apiHandler: "Dnd_Gm_Web_Handler_Api$",
 });

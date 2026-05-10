@@ -4,13 +4,33 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DND Game Master</title>
+    <link rel="stylesheet" href="/css/app.css">
   </head>
   <body>
     <main>
       <h1>DND Game Master</h1>
       <p>An AI co-Dungeon Master for tabletop RPG sessions.</p>
-      <p>The human Game Master remains in control.</p>
-      <p>This is a chat-first MVP for collaborative play, story support, and session flow.</p>
+      <p id="status">Create a local identity to begin.</p>
+      <section class="panel">
+        <form id="identityForm">
+          <label for="displayName">Local identity</label>
+          <input id="displayName" name="displayName" autocomplete="nickname" placeholder="Player name" required>
+          <button type="submit">Create identity</button>
+        </form>
+        <form id="sessionForm">
+          <button type="submit">Create session</button>
+        </form>
+        <form id="joinForm">
+          <input id="sessionId" name="sessionId" placeholder="Session id" required>
+          <button type="submit">Join session</button>
+        </form>
+        <form id="messageForm">
+          <input id="messageText" name="messageText" placeholder="Send a chat message" required>
+          <button type="submit">Send message</button>
+        </form>
+        <ul id="messages"></ul>
+      </section>
     </main>
+    <script type="module" src="/js/app.js"></script>
   </body>
 </html>
