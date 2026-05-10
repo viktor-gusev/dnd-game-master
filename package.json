@@ -1,10 +1,69 @@
 {
-  "name": "dnd-game-master",
+  "name": "@viktor-gusev/dnd-game-master",
   "version": "1.0.0",
-  "description": "AI driven DND session",
-  "private": true,
+  "description": "An AI co-Dungeon Master platform that helps human GMs run better tabletop RPG sessions.",
+  "license": "Apache-2.0",
   "type": "module",
+  "types": "types.d.ts",
+  "homepage": "https://github.com/viktor-gusev/dnd-game-master",
+  "bugs": {
+    "url": "https://github.com/viktor-gusev/dnd-game-master/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viktor-gusev/dnd-game-master.git"
+  },
+  "author": [
+    {
+      "name": "Victor Gusev",
+      "email": "viktor@nmmlm.com",
+      "url": "https://github.com/viktor-gusev"
+    },
+    {
+      "name": "Alex Gusev",
+      "email": "alex@flancer64.com",
+      "url": "https://github.com/flancer64"
+    }
+  ],
+  "keywords": [
+    "ai",
+    "dnd",
+    "dungeons-and-dragons",
+    "tabletop-rpg",
+    "ttrpg",
+    "dungeon-master",
+    "game-master",
+    "co-dm",
+    "ai-assistant",
+    "rpg-session",
+    "storytelling",
+    "world-building",
+    "character-creation",
+    "game-session",
+    "multiplayer",
+    "chat-first",
+    "narrative-ai"
+  ],
+  "teqfw": {
+    "namespaces": [
+      {
+        "prefix": "Dnd_Gm_",
+        "path": "./src",
+        "ext": ".mjs"
+      }
+    ]
+  },
   "scripts": {
-    "test": "node -e \"console.log('No tests defined')\""
+    "start": "node ./bin/cli.mjs",
+    "test:unit": "find test/unit -name '*.test.mjs' -print0 | xargs -0 node --test",
+    "test:integration": "find test/integration -name '*.test.mjs' -print0 | xargs -0 node --test",
+    "test": "npm run test:unit && npm run test:integration"
+  },
+  "dependencies": {
+    "@flancer32/teq-web": ">=0.11.0 <1.0.0",
+    "@teqfw/di": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*"
   }
 }
