@@ -14,12 +14,24 @@ function getFreePort() {
   });
 }
 
+async function waitFor(url, timeoutMs = 10000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timeout waiting for ${url}`);
+}
+
 async function startApp(port) {
   const child = spawn(process.execPath, ["./bin/cli.mjs", "--port", String(port)], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
   });
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await waitFor(`http://127.0.0.1:${port}/`);
   return child;
 }
 
