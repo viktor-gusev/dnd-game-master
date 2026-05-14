@@ -1,13 +1,13 @@
-const state = {
-  identityId: localStorage.getItem("dnd-gm.identityId") || "",
-  sessionId: localStorage.getItem("dnd-gm.sessionId") || "",
-};
+import { loadBrowserState, saveBrowserState } from "./browser-state.js";
+
+const state = loadBrowserState(localStorage);
 
 const el = (id) => document.getElementById(id);
 
 function saveState() {
-  localStorage.setItem("dnd-gm.identityId", state.identityId);
-  localStorage.setItem("dnd-gm.sessionId", state.sessionId);
+  saveBrowserState(localStorage, state);
+  const displayNameInput = el("displayName");
+  if (displayNameInput) displayNameInput.value = state.displayName;
   const sessionInput = el("sessionId");
   if (sessionInput) sessionInput.value = state.sessionId;
 }
@@ -43,6 +43,7 @@ el("identityForm").addEventListener("submit", async (event) => {
   const displayName = el("displayName").value.trim();
   const data = await api("/api/identity/local", { method: "POST", body: JSON.stringify({ displayName }) });
   if (data.ok) {
+    state.displayName = displayName;
     state.identityId = data.data.identityId;
     saveState();
     el("status").textContent = `Identity ready: ${state.identityId}`;
@@ -98,4 +99,6 @@ el("messageForm").addEventListener("submit", submitMessage);
 el("sendMessage").addEventListener("click", submitMessage);
 
 saveState();
+el("displayName").value = state.displayName;
+el("sessionId").value = state.sessionId;
 if (state.sessionId) refreshMessages();
