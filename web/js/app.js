@@ -1,15 +1,13 @@
-import { loadLocalState, saveDisplayName, saveIdentityId, saveSessionId } from "./state/local-state.js";
+import { loadBrowserState, saveBrowserState } from "./browser-state.js";
 
-const state = loadLocalState();
+const state = loadBrowserState(localStorage);
 
 const el = (id) => document.getElementById(id);
 
-if (el("displayName")) el("displayName").value = state.displayName;
-if (el("sessionId")) el("sessionId").value = state.sessionId;
-
 function saveState() {
-  saveIdentityId(state.identityId);
-  saveSessionId(state.sessionId);
+  saveBrowserState(localStorage, state);
+  const displayNameInput = el("displayName");
+  if (displayNameInput) displayNameInput.value = state.displayName;
   const sessionInput = el("sessionId");
   if (sessionInput) sessionInput.value = state.sessionId;
 }
@@ -47,7 +45,6 @@ el("identityForm").addEventListener("submit", async (event) => {
   if (data.ok) {
     state.displayName = displayName;
     state.identityId = data.data.identityId;
-    saveDisplayName(state.displayName);
     saveState();
     el("status").textContent = `Identity ready: ${state.identityId}`;
   } else {
@@ -102,4 +99,6 @@ el("messageForm").addEventListener("submit", submitMessage);
 el("sendMessage").addEventListener("click", submitMessage);
 
 saveState();
+el("displayName").value = state.displayName;
+el("sessionId").value = state.sessionId;
 if (state.sessionId) refreshMessages();
