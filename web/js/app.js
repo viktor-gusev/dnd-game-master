@@ -71,6 +71,14 @@ el("joinForm").addEventListener("submit", async (event) => {
 
 el("messageForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!state.identityId) {
+    el("status").textContent = "Create a local identity before sending messages.";
+    return;
+  }
+  if (!state.sessionId) {
+    el("status").textContent = "Join or create a session before sending messages.";
+    return;
+  }
   const text = el("messageText").value.trim();
   const data = await api(`/api/sessions/${state.sessionId}/messages`, { method: "POST", body: JSON.stringify({ text, type: "player_action" }) });
   if (data.ok) {
