@@ -1,13 +1,15 @@
-const state = {
-  identityId: localStorage.getItem("dnd-gm.identityId") || "",
-  sessionId: localStorage.getItem("dnd-gm.sessionId") || "",
-};
+import { loadLocalState, saveDisplayName, saveIdentityId, saveSessionId } from "./state/local-state.js";
+
+const state = loadLocalState();
 
 const el = (id) => document.getElementById(id);
 
+if (el("displayName")) el("displayName").value = state.displayName;
+if (el("sessionId")) el("sessionId").value = state.sessionId;
+
 function saveState() {
-  localStorage.setItem("dnd-gm.identityId", state.identityId);
-  localStorage.setItem("dnd-gm.sessionId", state.sessionId);
+  saveIdentityId(state.identityId);
+  saveSessionId(state.sessionId);
   const sessionInput = el("sessionId");
   if (sessionInput) sessionInput.value = state.sessionId;
 }
@@ -43,7 +45,9 @@ el("identityForm").addEventListener("submit", async (event) => {
   const displayName = el("displayName").value.trim();
   const data = await api("/api/identity/local", { method: "POST", body: JSON.stringify({ displayName }) });
   if (data.ok) {
+    state.displayName = displayName;
     state.identityId = data.data.identityId;
+    saveDisplayName(state.displayName);
     saveState();
     el("status").textContent = `Identity ready: ${state.identityId}`;
   } else {
