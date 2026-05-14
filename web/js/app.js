@@ -1,11 +1,13 @@
-import { loadBrowserState, saveBrowserState } from "./browser-state.js";
+import { loadLocalState, saveDisplayName, saveIdentityId, saveSessionId } from "./state/local-state.js";
 
-const state = loadBrowserState(localStorage);
+const state = loadLocalState(localStorage);
 
 const el = (id) => document.getElementById(id);
 
 function saveState() {
-  saveBrowserState(localStorage, state);
+  saveDisplayName(state.displayName, localStorage);
+  saveIdentityId(state.identityId, localStorage);
+  saveSessionId(state.sessionId, localStorage);
   const displayNameInput = el("displayName");
   if (displayNameInput) displayNameInput.value = state.displayName;
   const sessionInput = el("sessionId");
