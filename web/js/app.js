@@ -19,6 +19,10 @@ async function api(path, options = {}) {
     headers.set("x-local-identity-id", state.identityId);
   }
   const res = await fetch(path, { ...options, headers });
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return { ok: false, error: { message: `Unexpected response from ${path}.` } };
+  }
   return res.json();
 }
 
@@ -69,7 +73,7 @@ el("joinForm").addEventListener("submit", async (event) => {
   await refreshMessages();
 });
 
-el("messageForm").addEventListener("submit", async (event) => {
+async function submitMessage(event) {
   event.preventDefault();
   if (!state.identityId) {
     el("status").textContent = "Create a local identity before sending messages.";
@@ -86,9 +90,12 @@ el("messageForm").addEventListener("submit", async (event) => {
     el("status").textContent = "Message sent.";
     await refreshMessages();
   } else {
-    el("status").textContent = data.error.message;
+    el("status").textContent = data.error.message || "Failed to send message.";
   }
-});
+}
+
+el("messageForm").addEventListener("submit", submitMessage);
+el("sendMessage").addEventListener("click", submitMessage);
 
 saveState();
 if (state.sessionId) refreshMessages();
