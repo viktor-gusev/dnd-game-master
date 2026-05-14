@@ -34,6 +34,26 @@ async function refreshMessages() {
   }
 }
 
+async function sendMessage() {
+  if (!state.identityId) {
+    el("status").textContent = "Create a local identity before sending messages.";
+    return;
+  }
+  if (!state.sessionId) {
+    el("status").textContent = "Join or create a session before sending messages.";
+    return;
+  }
+  const text = el("messageText").value.trim();
+  const data = await api(`/api/sessions/${state.sessionId}/messages`, { method: "POST", body: JSON.stringify({ text, type: "player_action" }) });
+  if (data.ok) {
+    el("messageText").value = "";
+    el("status").textContent = "Message sent.";
+    await refreshMessages();
+  } else {
+    el("status").textContent = data.error.message;
+  }
+}
+
 el("identityForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const displayName = el("displayName").value.trim();
@@ -71,23 +91,11 @@ el("joinForm").addEventListener("submit", async (event) => {
 
 el("messageForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!state.identityId) {
-    el("status").textContent = "Create a local identity before sending messages.";
-    return;
-  }
-  if (!state.sessionId) {
-    el("status").textContent = "Join or create a session before sending messages.";
-    return;
-  }
-  const text = el("messageText").value.trim();
-  const data = await api(`/api/sessions/${state.sessionId}/messages`, { method: "POST", body: JSON.stringify({ text, type: "player_action" }) });
-  if (data.ok) {
-    el("messageText").value = "";
-    el("status").textContent = "Message sent.";
-    await refreshMessages();
-  } else {
-    el("status").textContent = data.error.message;
-  }
+  await sendMessage();
+});
+
+el("messageSendButton").addEventListener("click", async () => {
+  await sendMessage();
 });
 
 saveState();
