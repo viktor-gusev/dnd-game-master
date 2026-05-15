@@ -1,0 +1,86 @@
+name: Upload GitHub Flows Config for App
+
+on: workflow_dispatch
+
+env:
+  SOURCE_DIR: ctx/agent/flows/app/cfg
+  ARCHIVE_NAME: flows-app-cfg.tar.gz
+  TARGET_DIR: ${{ vars.FLOWS_APP_CFG_DIR }}
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Validate source config directory
+        run: |
+          set -e
+
+          if [ ! -d "${{ env.SOURCE_DIR }}" ]; then
+            echo "Missing source directory: ${{ env.SOURCE_DIR }}" >&2
+            exit 1
+          fi
+
+          if ! find "${{ env.SOURCE_DIR }}" -mindepth 1 -print -quit | grep -q .; then
+            echo "Source directory is empty: ${{ env.SOURCE_DIR }}" >&2
+            exit 1
+          fi
+
+      - name: Build source archive
+        run: |
+          set -e
+          tar -C "${{ env.SOURCE_DIR }}" -czf "${{ env.ARCHIVE_NAME }}" .
+
+      - name: Copy archive to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ vars.FLOWS_APP_HOST }}
+          username: ${{ vars.FLOWS_APP_USER }}
+          key: ${{ secrets.FLOWS_APP_SSH_KEY }}
+          source: ${{ env.ARCHIVE_NAME }}
+          target: /tmp
+
+      - name: Replace target directory on server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ vars.FLOWS_APP_HOST }}
+          username: ${{ vars.FLOWS_APP_USER }}
+          key: ${{ secrets.FLOWS_APP_SSH_KEY }}
+          script: |
+            set -e
+
+            TARGET_DIR="${{ env.TARGET_DIR }}"
+            ARCHIVE_PATH="/tmp/${{ env.ARCHIVE_NAME }}"
+            STAGING_DIR="${TARGET_DIR}.staging.$$"
+
+            if [ -z "$TARGET_DIR" ]; then
+              echo "Target directory variable is empty" >&2
+              exit 1
+            fi
+
+            if [ "$TARGET_DIR" = "/" ]; then
+              echo "Refusing to replace root directory" >&2
+              exit 1
+            fi
+
+            if [ ! -f "$ARCHIVE_PATH" ]; then
+              echo "Missing uploaded archive: $ARCHIVE_PATH" >&2
+              exit 1
+            fi
+
+            mkdir -p "$(dirname "$TARGET_DIR")"
+            rm -rf "$STAGING_DIR"
+            mkdir -p "$STAGING_DIR"
+
+            tar -xzf "$ARCHIVE_PATH" -C "$STAGING_DIR"
+
+            rm -rf "$TARGET_DIR"
+            mv "$STAGING_DIR" "$TARGET_DIR"
+
+            rm -f "$ARCHIVE_PATH"
+
+            echo "Target path: $TARGET_DIR"
+            find "$TARGET_DIR" -maxdepth 2 -mindepth 1 | sort
