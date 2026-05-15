@@ -15,10 +15,11 @@ Product goals such as authentication, sessions, AI assistance, and gameplay feat
 ## Runtime
 
 The application uses `@flancer32/teq-web` for web transport and request pipeline infrastructure.
-The root component is `Dnd_Gm_App`.
+The root component is `Dnd_Gm_Bootstrap`.
 
 Static files are served from `web/`.
 The default port is `3000`.
+You can also set `PORT` in a local `.env` file in the project root.
 Use `--port <number>` or `-p <number>` to select a different port.
 
 ## Installation
@@ -37,6 +38,12 @@ To use a custom port:
 
 ```sh
 npm start -- --port 3000
+```
+
+Or:
+
+```env
+PORT=3000
 ```
 
 ## Static Files

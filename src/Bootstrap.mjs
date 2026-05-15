@@ -1,20 +1,42 @@
 // @ts-check
 
 /**
- * @namespace Dnd_Gm_App
+ * @namespace Dnd_Gm_Bootstrap
  * @description Root application component that starts and stops the web server.
  */
 
 const DEFAULT_PORT = 3000;
 
-/**
- * Parses the HTTP port from CLI arguments.
- *
- * @param {string[]} cliArgs
- * @returns {number}
- */
+function parseEnvFile(content) {
+  const env = {};
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex < 0) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!key) continue;
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+
+async function loadEnvFile(envPath) {
+  const fs = await import("node:fs/promises");
+  try {
+    const content = await fs.readFile(envPath, "utf8");
+    Object.assign(process.env, parseEnvFile(content));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
 function parsePort(cliArgs) {
-  let port = DEFAULT_PORT;
+  let port = Number(process.env.PORT || DEFAULT_PORT);
   for (let i = 0; i < cliArgs.length; i += 1) {
     const arg = cliArgs[i];
     if (arg === "--port" || arg === "-p") {
@@ -32,15 +54,7 @@ function parsePort(cliArgs) {
   return port;
 }
 
-export default class App {
-  /**
-   * @param {object} deps
-   * @param {Fl32_Web_Back_PipelineEngine} deps.pipeline
-   * @param {Fl32_Web_Back_Server} deps.server
-   * @param {Fl32_Web_Back_Handler_Static} deps.staticHandler
-   * @param {Fl32_Web_Back_Dto_Source__Factory} deps.sourceFactory
-   * @param {Fl32_Web_Back_Config_Runtime__Factory} deps.configFactory
-   */
+export default class Bootstrap {
   constructor({ pipeline, server, staticHandler, sourceFactory, configFactory, apiHandler }) {
     let running = false;
     let stoppedBeforeRun = false;
@@ -48,16 +62,9 @@ export default class App {
     let doneResolve = null;
     let stopped = false;
 
-    /**
-     * Starts the web server and waits until shutdown is requested.
-     *
-     * @param {object} params
-     * @param {string} params.projectRoot
-     * @param {string[]} params.cliArgs
-     * @returns {Promise<number>}
-     */
     this.run = async function ({ projectRoot, cliArgs }) {
       if (stoppedBeforeRun) return 0;
+      await loadEnvFile(`${projectRoot}/.env`);
       const port = parsePort(cliArgs);
       const webRoot = `${projectRoot}/web`;
       const source = sourceFactory.create({ root: webRoot, prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] });
@@ -80,11 +87,6 @@ export default class App {
       return 0;
     };
 
-    /**
-     * Stops the web server and resolves the running application.
-     *
-     * @returns {Promise<void>}
-     */
     this.stop = async function () {
       if (stopped) return;
       stopped = true;
@@ -108,3 +110,4 @@ export const __deps__ = Object.freeze({
   configFactory: "Fl32_Web_Back_Config_Runtime__Factory$",
   apiHandler: "Dnd_Gm_Web_Handler_Api$",
 });
+

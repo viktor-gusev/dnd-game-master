@@ -19,7 +19,7 @@ for (const entry of entries) {
   container.addNamespaceRoot(entry.prefix, entry.dirAbs, entry.ext);
 }
 
-const app = await container.get("Dnd_Gm_App$");
+const app = await container.get("Dnd_Gm_Bootstrap$");
 const cliArgs = process.argv.slice(2);
 
 let exitCode = 1;

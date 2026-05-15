@@ -1,5 +1,5 @@
 declare global {
-  type Dnd_Gm_App = import("./src/App.mjs").default;
+  type Dnd_Gm_Bootstrap = import("./src/Bootstrap.mjs").default;
 }
 
 export {};

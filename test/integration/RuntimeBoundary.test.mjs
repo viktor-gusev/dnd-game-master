@@ -9,10 +9,10 @@ function readText(relPath) {
   return fs.readFileSync(path.join(projectRoot, relPath), "utf8");
 }
 
-test("Dnd_Gm_App remains the root application component", () => {
-  const appSource = readText("src/App.mjs");
-  assert.match(appSource, /export default class App/);
-  assert.match(appSource, /@namespace Dnd_Gm_App/);
+test("Dnd_Gm_Bootstrap remains the root application component", () => {
+  const appSource = readText("src/Bootstrap.mjs");
+  assert.match(appSource, /export default class Bootstrap/);
+  assert.match(appSource, /@namespace Dnd_Gm_Bootstrap/);
 });
 
 test("runtime boundary does not introduce alternative HTTP server frameworks", () => {
@@ -24,7 +24,7 @@ test("runtime boundary does not introduce alternative HTTP server frameworks", (
   for (const name of ["express", "fastify", "koa", "nest", "nestjs", "hono"]) {
     assert.equal(deps[name], undefined, `${name} must not be added`);
   }
-  const source = readText("src/App.mjs");
+  const source = readText("src/Bootstrap.mjs");
   assert.doesNotMatch(source, /node:http/);
   assert.doesNotMatch(source, /express|fastify|koa|nest|hono/i);
 });

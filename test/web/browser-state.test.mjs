@@ -50,3 +50,4 @@ test("saves browser state to localStorage", () => {
   assert.equal(storage.values.get(STORAGE_KEYS.identityId), "identity-2");
   assert.equal(storage.values.get(STORAGE_KEYS.sessionId), "session-2");
 });
+

@@ -53,3 +53,4 @@ test("browser entry restores stored state into inputs", () => {
   assert.equal(nodes.get("displayName").value, "Alice");
   assert.equal(nodes.get("sessionId").value, "session-1");
 });
+

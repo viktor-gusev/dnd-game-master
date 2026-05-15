@@ -1,6 +1,9 @@
 // @ts-check
 
-import crypto from "node:crypto";
+/**
+ * @namespace Dnd_Gm_Web_Handler_Api
+ * @description HTTP API handler for the application.
+ */
 
 function json(res, status, body) {
   if (!res.writableEnded) {
@@ -34,6 +37,82 @@ export default class Dnd_Gm_Web_Handler_Api {
   constructor({ dataStore }) {
     this.dataStore = dataStore;
     this.getRegistrationInfo = () => ({ name: this.constructor.name, stage: "PROCESS" });
+
+    this.postLocalIdentity = async (req, res, context) => {
+      const body = await readBody(req);
+      const identity = await this.dataStore.upsertIdentity(body.displayName);
+      context.complete();
+      json(res, 200, success({ identityId: identity.id, displayName: identity.displayName }));
+    };
+
+    this.getCurrentIdentity = async (req, res, context) => {
+      const identityId = req.headers["x-local-identity-id"];
+      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
+      const identity = await this.dataStore.getIdentity(identityId);
+      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
+      context.complete();
+      json(res, 200, success({ identity }));
+    };
+
+    this.createSession = async (req, res, context) => {
+      const identityId = req.headers["x-local-identity-id"];
+      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
+      const identity = await this.dataStore.getIdentity(identityId);
+      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
+      const session = await this.dataStore.createSession(identity);
+      context.complete();
+      json(res, 200, success({ sessionId: session.id, session }));
+    };
+
+    this.getSession = async (sessionId, res, context) => {
+      const current = await this.dataStore.loadSession(sessionId);
+      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      context.complete();
+      json(res, 200, success({ session: current.session, participants: current.participants }));
+    };
+
+    this.joinSession = async (sessionId, req, res, context) => {
+      const identityId = req.headers["x-local-identity-id"];
+      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
+      const identity = await this.dataStore.getIdentity(identityId);
+      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
+      const session = await this.dataStore.joinSession(sessionId, identity);
+      if (!session) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      context.complete();
+      json(res, 200, success({ sessionId: session.id, joined: true }));
+    };
+
+    this.postMessage = async (sessionId, req, res, context) => {
+      const crypto = await import("node:crypto");
+      const identityId = req.headers["x-local-identity-id"];
+      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
+      const identity = await this.dataStore.getIdentity(identityId);
+      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
+      const current = await this.dataStore.loadSession(sessionId);
+      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      if (!current.participants.some((p) => p.identityId === identity.id)) throw Object.assign(new Error("Identity is not a session participant."), { code: "invalid_input" });
+      const body = await readBody(req);
+      if (!body.text || !String(body.text).trim()) throw Object.assign(new Error("Message text is required."), { code: "invalid_input" });
+      const message = {
+        id: `msg_${crypto.randomBytes(6).toString("hex")}`,
+        sessionId,
+        identityId: identity.id,
+        type: body.type || "player_action",
+        text: String(body.text).trim(),
+        createdAt: new Date().toISOString(),
+      };
+      await this.dataStore.appendMessage(sessionId, message);
+      context.complete();
+      json(res, 200, success({ message }));
+    };
+
+    this.getMessages = async (sessionId, res, context) => {
+      const current = await this.dataStore.loadSession(sessionId);
+      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      context.complete();
+      json(res, 200, success({ messages: current.messages }));
+    };
+
     this.handle = async (context) => {
       const req = context.request;
       const res = context.response;
@@ -67,80 +146,6 @@ export default class Dnd_Gm_Web_Handler_Api {
         return json(res, 500, error("internal_error", "Internal server error."));
       }
     };
-  }
-
-  async postLocalIdentity(req, res, context) {
-    const body = await readBody(req);
-    const identity = await this.dataStore.upsertIdentity(body.displayName);
-    context.complete();
-    json(res, 200, success({ identityId: identity.id, displayName: identity.displayName }));
-  }
-
-  async getCurrentIdentity(req, res, context) {
-    const identityId = req.headers["x-local-identity-id"];
-    if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-    const identity = await this.dataStore.getIdentity(identityId);
-    if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-    context.complete();
-    json(res, 200, success({ identity }));
-  }
-
-  async createSession(req, res, context) {
-    const identityId = req.headers["x-local-identity-id"];
-    if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-    const identity = await this.dataStore.getIdentity(identityId);
-    if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-    const session = await this.dataStore.createSession(identity);
-    context.complete();
-    json(res, 200, success({ sessionId: session.id, session }));
-  }
-
-  async getSession(sessionId, res, context) {
-    const current = await this.dataStore.loadSession(sessionId);
-    if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-    context.complete();
-    json(res, 200, success({ session: current.session, participants: current.participants }));
-  }
-
-  async joinSession(sessionId, req, res, context) {
-    const identityId = req.headers["x-local-identity-id"];
-    if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-    const identity = await this.dataStore.getIdentity(identityId);
-    if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-    const session = await this.dataStore.joinSession(sessionId, identity);
-    if (!session) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-    context.complete();
-    json(res, 200, success({ sessionId: session.id, joined: true }));
-  }
-
-  async postMessage(sessionId, req, res, context) {
-    const identityId = req.headers["x-local-identity-id"];
-    if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-    const identity = await this.dataStore.getIdentity(identityId);
-    if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-    const current = await this.dataStore.loadSession(sessionId);
-    if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-    if (!current.participants.some((p) => p.identityId === identity.id)) throw Object.assign(new Error("Identity is not a session participant."), { code: "invalid_input" });
-    const body = await readBody(req);
-    if (!body.text || !String(body.text).trim()) throw Object.assign(new Error("Message text is required."), { code: "invalid_input" });
-    const message = {
-      id: `msg_${crypto.randomBytes(6).toString("hex")}`,
-      sessionId,
-      identityId: identity.id,
-      type: body.type || "player_action",
-      text: String(body.text).trim(),
-      createdAt: new Date().toISOString(),
-    };
-    await this.dataStore.appendMessage(sessionId, message);
-    context.complete();
-    json(res, 200, success({ message }));
-  }
-
-  async getMessages(sessionId, res, context) {
-    const current = await this.dataStore.loadSession(sessionId);
-    if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-    context.complete();
-    json(res, 200, success({ messages: current.messages }));
   }
 }
 
