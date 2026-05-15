@@ -1,0 +1,99 @@
+name: PROD - Build & Deploy Application
+
+# Normative source: ctx/docs/environment/github-actions.md
+on: workflow_dispatch
+
+env:
+  PRJ: dnd-game-master
+  APP_DIR: ${{ vars.APP_DIR }}
+  SERVICE_NAME: dnd-game-master.service
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install production dependencies
+        run: |
+          npm install --omit=optional
+          npm prune --omit=dev
+
+      - name: Build deployment archive
+        run: |
+          zip -qq --exclude=*.git* -r ${{ env.PRJ }}.zip ./
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-archive
+          path: ${{ env.PRJ }}.zip
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: app-archive
+          path: .
+
+      - name: Copy archive to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: ${{ env.PRJ }}.zip
+          target: ${{ env.APP_DIR }}
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+
+            cd "${{ env.APP_DIR }}"
+
+            rm -rf prod.new
+            mkdir -p prod.new
+
+            unzip -qq "${{ env.PRJ }}.zip" -d prod.new
+
+            TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+            sudo /bin/systemctl stop "${{ env.SERVICE_NAME }}" || true
+
+            rm -rf prod.old
+            if [ -d prod ]; then
+              mv prod prod.old
+            else
+              mkdir -p prod.old
+            fi
+
+            mv prod.new prod
+
+            if [ -f prod.old/.env ]; then
+              cp prod.old/.env prod/.env
+            fi
+
+            if [ -d prod.old/var ]; then
+              mkdir -p prod/var
+              cp -a prod.old/var/. prod/var/ || true
+            fi
+
+            mv "${{ env.PRJ }}.zip" "${{ env.PRJ }}-${TIMESTAMP}.zip"
+
+            sudo /bin/systemctl start "${{ env.SERVICE_NAME }}"
+            sudo /bin/systemctl status --no-pager "${{ env.SERVICE_NAME }}"
+
+            systemctl is-active "${{ env.SERVICE_NAME }}"
+            ls -lh "${{ env.APP_DIR }}"
