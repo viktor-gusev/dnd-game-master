@@ -1,0 +1,24 @@
+<div class="host">
+  <button class="toggle" type="button" data-action="open" aria-expanded="false">
+    Errors
+    <span class="count" data-role="count">0</span>
+  </button>
+  <section class="panel" hidden>
+    <header class="panel-header">
+      <div>
+        <h2>Error diagnostics</h2>
+        <p class="subtitle">Recent in-memory browser errors</p>
+      </div>
+      <button class="close" type="button" data-action="close" aria-label="Close diagnostics panel">Close</button>
+    </header>
+    <div class="actions">
+      <button type="button" data-action="copy">Copy report</button>
+      <button type="button" data-action="clear">Clear</button>
+    </div>
+    <p class="status" data-role="status">No errors captured.</p>
+    <div class="content">
+      <ol class="records" data-role="records"></ol>
+      <pre class="details" data-role="details">No record selected.</pre>
+    </div>
+  </section>
+</div>
