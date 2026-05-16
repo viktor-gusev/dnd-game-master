@@ -56,9 +56,9 @@
   "scripts": {
     "start": "node ./bin/cli.mjs",
     "test:unit": "find test/unit -name '*.test.mjs' -print0 | xargs -0 node --test",
-    "test:web": "find test/web -name '*.test.mjs' -print0 | xargs -0 node --test",
+    "test:web": "find test/unit/web -name '*.test.mjs' -print0 | xargs -0 node --test",
     "test:integration": "find test/integration -name '*.test.mjs' -print0 | xargs -0 node --test",
-    "test": "npm run test:unit && npm run test:web && npm run test:integration"
+    "test": "npm run test:unit && npm run test:integration"
   },
   "dependencies": {
     "@flancer32/teq-web": ">=0.11.0 <1.0.0",

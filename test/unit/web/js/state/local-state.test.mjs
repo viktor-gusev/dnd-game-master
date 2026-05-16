@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { loadLocalState, saveDisplayName, saveIdentityId, saveSessionId } from "../../../web/js/state/local-state.js";
+import { loadLocalState, saveDisplayName, saveIdentityId, saveSessionId } from "../../../../../web/js/state/local-state.js";
 
 function makeStorage(initial = {}) {
   const data = new Map(Object.entries(initial));
@@ -42,4 +42,3 @@ test("saves display name, identity id, and session id", () => {
     "dnd-gm.sessionId": "sess-456",
   });
 });
-

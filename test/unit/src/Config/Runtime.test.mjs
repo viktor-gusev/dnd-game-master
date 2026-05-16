@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import ConfigRuntime, { Factory } from "../../../src/Config/Runtime.mjs";
+import ConfigRuntime, { Factory } from "../../../../src/Config/Runtime.mjs";
 
 test("wrapper rejects reads before initialization", () => {
   const runtime = new ConfigRuntime();

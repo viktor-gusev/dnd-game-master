@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import ApiHandler from "../../../../src/Web/Handler/Api.mjs";
+import ApiHandler from "../../../../../src/Web/Handler/Api.mjs";
 
 function makeContext() {
   const response = {
@@ -99,4 +99,3 @@ test("GET /api/identity/current rejects missing identity header", async () => {
   assert.equal(context.response.statusCode, 400);
   assert.match(context.response.body, /"missing_identity"/);
 });
-

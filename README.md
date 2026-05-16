@@ -56,6 +56,7 @@ PORT=3000
 
 ```sh
 npm run test:unit
+npm run test:web
 npm run test:integration
 npm test
 ```
@@ -65,6 +66,7 @@ npm test
 - `bin/` bootstrap entrypoint
 - `src/` DI-managed application components
 - `web/` public static assets
-- `test/unit/` module-level tests
+- `test/unit/src/` module-level tests for `src/`
+- `test/unit/web/` module-level tests for `web/`
 - `test/integration/` runtime tests
 - `ctx/docs/` project documentation and constraints

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { loadBrowserState, saveBrowserState, STORAGE_KEYS } from "../../web/js/browser-state.js";
+import { loadBrowserState, saveBrowserState, STORAGE_KEYS } from "../../../../web/js/browser-state.js";
 
 function makeStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -50,4 +50,3 @@ test("saves browser state to localStorage", () => {
   assert.equal(storage.values.get(STORAGE_KEYS.identityId), "identity-2");
   assert.equal(storage.values.get(STORAGE_KEYS.sessionId), "session-2");
 });
-

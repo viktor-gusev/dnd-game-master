@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import Bootstrap from "../../src/Bootstrap.mjs";
+import Bootstrap from "../../../src/Bootstrap.mjs";
 
 function makeDeps() {
   const calls = [];
@@ -169,4 +169,3 @@ test("stop is idempotent", async () => {
   assert.equal(deps.calls.filter((x) => x[0] === "server.stop").length, 1);
   await run;
 });
-

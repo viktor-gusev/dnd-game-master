@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import DataStore from "../../../../src/Store/File/Data.mjs";
+import DataStore from "../../../../../src/Store/File/Data.mjs";
 
 test("file store persists identities sessions participants and messages", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dnd-gm-"));
@@ -39,4 +39,3 @@ test("file store rejects invalid session ids", async () => {
   const store = new DataStore();
   assert.throws(() => store.sessionDir("../escape"), /Invalid session id/);
 });
-

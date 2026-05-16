@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import ConfigLoader from "../../../src/Config/Loader.mjs";
+import ConfigLoader from "../../../../src/Config/Loader.mjs";
 
 function makeRuntimeFactory() {
   const calls = [];

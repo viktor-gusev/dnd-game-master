@@ -47,10 +47,9 @@ globalThis.fetch = async () => ({
   json: async () => ({ ok: true, data: { messages: [] } }),
 });
 
-await import("../../web/js/app.js");
+await import("../../../../web/js/app.js");
 
 test("browser entry restores stored state into inputs", () => {
   assert.equal(nodes.get("displayName").value, "Alice");
   assert.equal(nodes.get("sessionId").value, "session-1");
 });
-
