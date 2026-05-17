@@ -23,9 +23,9 @@ function parsePositiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function makeEnvelope(name, clientInstanceId, payload = {}) {
+function makeEnvelope(kind, name, clientInstanceId, payload = {}) {
   return JSON.stringify({
-    kind: "control",
+    kind,
     name,
     clientInstanceId,
     emittedAt: nowIso(),
@@ -33,9 +33,9 @@ function makeEnvelope(name, clientInstanceId, payload = {}) {
   });
 }
 
-function emitSse(response, name, clientInstanceId, payload = {}) {
+function emitSse(response, kind, name, clientInstanceId, payload = {}) {
   response.write(`event: ${name}\n`);
-  response.write(`data: ${makeEnvelope(name, clientInstanceId, payload)}\n\n`);
+  response.write(`data: ${makeEnvelope(kind, name, clientInstanceId, payload)}\n\n`);
 }
 
 function makeLogContext({ clientInstanceId, principalRef, expiresAt } = {}) {
@@ -143,13 +143,36 @@ export default class Dnd_Gm_Service_EventDelivery_Runtime {
 
       console.info(`[event-delivery] opened stream ${makeLogContext({ clientInstanceId, principalRef })}`);
 
-      emitSse(response, "delivery.connected", clientInstanceId, {});
+      emitSse(response, "control", "delivery.connected", clientInstanceId, {});
       heartbeatTimer = setInterval(() => {
         if (response.writableEnded) return;
-        emitSse(response, "delivery.heartbeat", clientInstanceId, {});
+        emitSse(response, "control", "delivery.heartbeat", clientInstanceId, {});
       }, heartbeatIntervalMs);
 
       return { clientInstanceId, principalRef };
+    };
+
+    this.emitExtensionFrame = function ({ name, principalRefs, payload = {} }) {
+      if (typeof name !== "string" || !name.trim()) {
+        throw Object.assign(new Error("Extension frame name is required."), { code: "invalid_input" });
+      }
+
+      const delivered = [];
+      const seenHandles = new Set();
+      for (const principalRef of new Set(principalRefs || [])) {
+        for (const handle of channelRegistry.listActiveChannelsByPrincipal(principalRef)) {
+          if (!handle || seenHandles.has(handle)) continue;
+          seenHandles.add(handle);
+          if (handle.response?.writableEnded) continue;
+          try {
+            emitSse(handle.response, "extension", name, handle.clientInstanceId, payload);
+            delivered.push({ principalRef: handle.principalRef, clientInstanceId: handle.clientInstanceId });
+          } catch (error) {
+            console.warn(`[event-delivery] failed to emit extension frame ${name} ${makeLogContext({ clientInstanceId: handle.clientInstanceId, principalRef: handle.principalRef })}`, error?.message || error);
+          }
+        }
+      }
+      return delivered;
     };
   }
 }

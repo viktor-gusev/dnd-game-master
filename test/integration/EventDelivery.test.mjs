@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -58,6 +61,42 @@ async function requestToken(port, identityId, body) {
   return { res, json: await res.json() };
 }
 
+async function createSession(port, identityId) {
+  const res = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-local-identity-id": identityId,
+    },
+    body: JSON.stringify({}),
+  });
+  return { res, json: await res.json() };
+}
+
+async function joinSession(port, identityId, sessionId) {
+  const res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/join`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-local-identity-id": identityId,
+    },
+    body: JSON.stringify({}),
+  });
+  return { res, json: await res.json() };
+}
+
+async function postMessage(port, identityId, sessionId, text) {
+  const res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-local-identity-id": identityId,
+    },
+    body: JSON.stringify({ text, type: "player_action" }),
+  });
+  return { res, json: await res.json() };
+}
+
 async function readSseEvents(response, count) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -84,6 +123,34 @@ async function readSseEvents(response, count) {
   }
 
   return { events, reader };
+}
+
+async function readUntilEvent(response, expectedName, timeoutMs = 3000) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+    let delimiterIndex = text.indexOf("\n\n");
+    while (delimiterIndex >= 0) {
+      const raw = text.slice(0, delimiterIndex);
+      text = text.slice(delimiterIndex + 2);
+      const eventName = raw.match(/^event: (.+)$/m)?.[1];
+      const dataText = raw.match(/^data: (.+)$/m)?.[1];
+      if (eventName && dataText) {
+        const event = { event: eventName, data: JSON.parse(dataText) };
+        if (event.event === expectedName) return { event, reader };
+      }
+      delimiterIndex = text.indexOf("\n\n");
+    }
+  }
+
+  await reader.cancel();
+  throw new Error(`Timeout waiting for SSE event ${expectedName}`);
 }
 
 test("token endpoint returns a no-store JSON envelope with a stream token", async () => {
@@ -248,6 +315,97 @@ test("stream endpoint rejects missing, invalid, and expired tokens before openin
     json = await response.json();
     assert.equal(response.status, 401);
     assert.equal(json.error.code, "expired_token");
+  } finally {
+    child.kill("SIGTERM");
+    await cleanup();
+  }
+});
+
+test("message append emits a project extension frame to active participant channels only", async () => {
+  const port = await getFreePort();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dnd-gm-event-delivery-"));
+  const dataRoot = path.join(root, "data");
+  const child = await startApp(port, {
+    DND_GM_EVENT_DELIVERY_HEARTBEAT_MS: "1000",
+    DND_GM_DATA_ROOT: dataRoot,
+  });
+  const cleanup = () => new Promise((resolve) => child.once("exit", resolve));
+
+  try {
+    const aliceId = await createIdentity(port, "Alice");
+    const bobId = await createIdentity(port, "Bob");
+    const eveId = await createIdentity(port, "Eve");
+
+    const created = await createSession(port, aliceId);
+    const sessionId = created.json.data.sessionId;
+    await joinSession(port, bobId, sessionId);
+
+    const aliceStreamA = await requestToken(port, aliceId, { clientInstanceId: "0123456789abcdef0123456789abcdef" });
+    const aliceStreamB = await requestToken(port, aliceId, { clientInstanceId: "fedcba9876543210fedcba9876543210" });
+    const bobStream = await requestToken(port, bobId, { clientInstanceId: "00112233445566778899aabbccddeeff" });
+    const eveStream = await requestToken(port, eveId, { clientInstanceId: "ffeeddccbbaa99887766554433221100" });
+
+    const aliceResponseA = await fetch(`http://127.0.0.1:${port}/api/event-delivery/stream?token=${encodeURIComponent(aliceStreamA.json.data.streamToken)}`);
+    const aliceResponseB = await fetch(`http://127.0.0.1:${port}/api/event-delivery/stream?token=${encodeURIComponent(aliceStreamB.json.data.streamToken)}`);
+    const bobResponse = await fetch(`http://127.0.0.1:${port}/api/event-delivery/stream?token=${encodeURIComponent(bobStream.json.data.streamToken)}`);
+    const eveResponse = await fetch(`http://127.0.0.1:${port}/api/event-delivery/stream?token=${encodeURIComponent(eveStream.json.data.streamToken)}`);
+
+    const aliceReaderA = await readSseEvents(aliceResponseA, 1);
+    const aliceReaderB = await readSseEvents(aliceResponseB, 1);
+    const bobReader = await readSseEvents(bobResponse, 1);
+    const eveReader = await readSseEvents(eveResponse, 1);
+    await aliceReaderA.reader.releaseLock?.();
+    await aliceReaderB.reader.releaseLock?.();
+    await bobReader.reader.releaseLock?.();
+    await eveReader.reader.releaseLock?.();
+
+    const aliceEventPromiseA = readUntilEvent(aliceResponseA, "session.messages.changed");
+    const aliceEventPromiseB = readUntilEvent(aliceResponseB, "session.messages.changed");
+    const bobEventPromise = readUntilEvent(bobResponse, "session.messages.changed");
+
+    const posted = await postMessage(port, aliceId, sessionId, "Hello party");
+    assert.equal(posted.res.status, 200);
+
+    const [aliceEventA, aliceEventB, bobEvent] = await Promise.all([aliceEventPromiseA, aliceEventPromiseB, bobEventPromise]);
+    for (const received of [aliceEventA.event, aliceEventB.event, bobEvent.event]) {
+      assert.equal(received.data.kind, "extension");
+      assert.equal(received.data.name, "session.messages.changed");
+      assert.equal(received.data.payload.sessionId, sessionId);
+      assert.equal(received.data.payload.reason, "message_appended");
+      assert.ok(received.data.payload.messageId);
+      assert.equal("text" in received.data.payload, false);
+    }
+
+    const historyResponse = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`, {
+      headers: { "x-local-identity-id": bobId },
+    });
+    const historyJson = await historyResponse.json();
+    assert.equal(historyResponse.status, 200);
+    assert.equal(historyJson.data.messages.length, 1);
+    assert.equal(historyJson.data.messages[0].text, "Hello party");
+
+    const sessionDirEntries = await fs.readdir(path.join(dataRoot, "sessions", sessionId));
+    assert.equal(sessionDirEntries.includes("messages.ndjson"), true);
+    assert.equal(sessionDirEntries.some((name) => name.includes("notification")), false);
+    assert.equal(sessionDirEntries.some((name) => name.includes("replay")), false);
+
+    const eveHistoryResponse = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`, {
+      headers: { "x-local-identity-id": eveId },
+    });
+    const eveHistoryJson = await eveHistoryResponse.json();
+    assert.equal(eveHistoryResponse.status, 400);
+    assert.equal(eveHistoryJson.error.code, "invalid_input");
+
+    const eveRead = eveResponse.body.getReader();
+    const timeout = new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 200));
+    const eveNext = eveRead.read().then(() => ({ timedOut: false }));
+    const eveResult = await Promise.race([eveNext, timeout]);
+    assert.equal(eveResult.timedOut, true);
+
+    await aliceEventA.reader.cancel();
+    await aliceEventB.reader.cancel();
+    await bobEvent.reader.cancel();
+    await eveRead.cancel();
   } finally {
     child.kill("SIGTERM");
     await cleanup();

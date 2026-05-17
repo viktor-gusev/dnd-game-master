@@ -95,10 +95,17 @@ test("first-slice api contract and persistence flow", async () => {
     assert.equal(json.data.message.type, "player_action");
     assert.equal(json.data.message.identityId, bobId);
 
-    res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`);
+    res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`, {
+      headers: { "x-local-identity-id": bobId },
+    });
     json = await res.json();
     assert.equal(json.ok, true);
     assert.equal(json.data.messages[0].text, "We enter the tavern.");
+
+    res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`);
+    json = await res.json();
+    assert.equal(res.status, 400);
+    assert.equal(json.error.code, "missing_identity");
 
     res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}`);
     json = await res.json();

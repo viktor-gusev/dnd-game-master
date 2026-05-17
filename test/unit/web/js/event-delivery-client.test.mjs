@@ -71,3 +71,56 @@ test("event delivery channel requests a token with clientInstanceId only and tra
   assert.equal(createdUrls[0], "/api/event-delivery/stream?token=token-1");
   assert.equal(state, "connected");
 });
+
+test("event delivery channel forwards project extension frames and reports reconnects", async () => {
+  const listeners = new Map();
+  const connectedEvents = [];
+  const extensionFrames = [];
+  let state = "closed";
+
+  const channel = createEventDeliveryChannel({
+    clientInstanceId: "0123456789abcdef0123456789abcdef",
+    fetchImpl: async () => ({
+      ok: true,
+      async json() {
+        return { ok: true, data: { streamToken: "token-1", expiresAt: "2026-05-17T00:00:00.000Z" } };
+      },
+    }),
+    eventSourceFactory: () => ({
+      addEventListener(name, listener) {
+        listeners.set(name, listener);
+      },
+      close() {},
+    }),
+    onConnected(event) {
+      connectedEvents.push(event);
+    },
+    onExtensionFrame(frame) {
+      extensionFrames.push(frame);
+    },
+    onStateChange(next) {
+      state = next;
+    },
+  });
+
+  await channel.start();
+  listeners.get("delivery.connected")?.();
+  listeners.get("session.messages.changed")?.({
+    data: JSON.stringify({
+      kind: "extension",
+      name: "session.messages.changed",
+      clientInstanceId: "0123456789abcdef0123456789abcdef",
+      emittedAt: "2026-05-17T00:00:00.000Z",
+      payload: { sessionId: "session-1", reason: "message_appended" },
+    }),
+  });
+  listeners.get("error")?.();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  listeners.get("delivery.connected")?.();
+
+  assert.equal(state, "connected");
+  assert.deepEqual(connectedEvents[0], { isReconnect: false });
+  assert.deepEqual(connectedEvents.at(-1), { isReconnect: true });
+  assert.equal(extensionFrames[0].name, "session.messages.changed");
+  assert.equal(extensionFrames[0].payload.sessionId, "session-1");
+});

@@ -54,6 +54,12 @@ function logEventDeliveryFailure(req, err) {
   console.warn(`[event-delivery] request failed ${details.join(" ")}`, err?.message ? `message=${err.message}` : "");
 }
 
+function findParticipantOrThrow(current, identityId) {
+  if (!current.participants.some((participant) => participant.identityId === identityId)) {
+    throw Object.assign(new Error("Identity is not a session participant."), { code: "invalid_input" });
+  }
+}
+
 export default class Dnd_Gm_Web_Handler_Api {
   constructor({ dataStore, eventDelivery }) {
     this.dataStore = dataStore;
@@ -112,7 +118,7 @@ export default class Dnd_Gm_Web_Handler_Api {
       if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
       const current = await this.dataStore.loadSession(sessionId);
       if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      if (!current.participants.some((p) => p.identityId === identity.id)) throw Object.assign(new Error("Identity is not a session participant."), { code: "invalid_input" });
+      findParticipantOrThrow(current, identity.id);
       const body = await readBody(req);
       if (!body.text || !String(body.text).trim()) throw Object.assign(new Error("Message text is required."), { code: "invalid_input" });
       const message = {
@@ -124,13 +130,31 @@ export default class Dnd_Gm_Web_Handler_Api {
         createdAt: new Date().toISOString(),
       };
       await this.dataStore.appendMessage(sessionId, message);
+      try {
+        this.eventDelivery.emitExtensionFrame({
+          name: "session.messages.changed",
+          principalRefs: current.participants.map((participant) => participant.identityId),
+          payload: {
+            sessionId,
+            reason: "message_appended",
+            messageId: message.id,
+          },
+        });
+      } catch (error) {
+        console.warn(`[event-delivery] message notification failed sessionId=${sessionId}`, error?.message || error);
+      }
       context.complete();
       json(res, 200, success({ message }));
     };
 
-    this.getMessages = async (sessionId, res, context) => {
+    this.getMessages = async (sessionId, req, res, context) => {
+      const identityId = req.headers["x-local-identity-id"];
+      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
+      const identity = await this.dataStore.getIdentity(identityId);
+      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
       const current = await this.dataStore.loadSession(sessionId);
       if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      findParticipantOrThrow(current, identity.id);
       context.complete();
       json(res, 200, success({ messages: current.messages }));
     };
@@ -178,7 +202,7 @@ export default class Dnd_Gm_Web_Handler_Api {
           if (action === null && method === "GET") return await this.getSession(sessionId, res, context);
           if (action === "join" && method === "POST") return await this.joinSession(sessionId, req, res, context);
           if (action === "messages" && method === "POST") return await this.postMessage(sessionId, req, res, context);
-          if (action === "messages" && method === "GET") return await this.getMessages(sessionId, res, context);
+          if (action === "messages" && method === "GET") return await this.getMessages(sessionId, req, res, context);
         }
         if (url.pathname.startsWith("/api/")) {
           context.complete();

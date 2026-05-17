@@ -37,11 +37,29 @@ const channel = createEventDeliveryChannel({
   getRequestHeaders() {
     return state.identityId ? { "x-local-identity-id": state.identityId } : {};
   },
+  onConnected({ isReconnect }) {
+    if (isReconnect && state.identityId && state.sessionId) void refreshMessages();
+  },
+  onExtensionFrame(frame) {
+    if (frame?.name !== "session.messages.changed") return;
+    if (frame?.payload?.sessionId !== state.sessionId) return;
+    if (!state.identityId || !state.sessionId) return;
+    void refreshMessages();
+  },
   onStateChange(next) {
     const status = el("channelStatus");
     if (status) status.textContent = `Channel: ${next}`;
   },
 });
+
+async function syncChannelWithIdentity({ forceRestart = false } = {}) {
+  if (!state.identityId) {
+    channel.close();
+    return;
+  }
+  if (forceRestart) channel.close();
+  await channel.start();
+}
 
 function saveState() {
   saveDisplayName(state.displayName, localStorage);
@@ -98,7 +116,7 @@ async function api(path, options = {}) {
 }
 
 async function refreshMessages() {
-  if (!state.sessionId) return;
+  if (!state.sessionId || !state.identityId) return;
   const data = await api(`/api/sessions/${state.sessionId}/messages`, { method: "GET", operation: "load-messages" });
   el("status").textContent = data.ok ? "Loaded messages." : data.error.message;
   el("messages").innerHTML = "";
@@ -114,11 +132,12 @@ el("identityForm").addEventListener("submit", async (event) => {
   const displayName = el("displayName").value.trim();
   const data = await api("/api/identity/local", { method: "POST", body: JSON.stringify({ displayName }), operation: "create-local-identity" });
   if (data.ok) {
+    const previousIdentityId = state.identityId;
     state.displayName = displayName;
     state.identityId = data.data.identityId;
     saveState();
     el("status").textContent = `Identity ready: ${state.identityId}`;
-    await channel.start();
+    await syncChannelWithIdentity({ forceRestart: previousIdentityId !== state.identityId });
   } else {
     el("status").textContent = data.error.message;
   }
@@ -176,4 +195,4 @@ saveState();
 el("displayName").value = state.displayName;
 el("sessionId").value = state.sessionId;
 if (state.sessionId) refreshMessages();
-if (state.identityId) void channel.start();
+if (state.identityId) void syncChannelWithIdentity();

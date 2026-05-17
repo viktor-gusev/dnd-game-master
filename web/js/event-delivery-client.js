@@ -26,6 +26,8 @@ export function createEventDeliveryChannel({
   },
   clientInstanceId,
   getRequestHeaders = () => ({}),
+  onConnected = () => {},
+  onExtensionFrame = () => {},
   onStateChange = () => {},
   tokenPath = "/api/event-delivery/token",
   streamPath = "/api/event-delivery/stream",
@@ -34,6 +36,7 @@ export function createEventDeliveryChannel({
   let source = null;
   let reconnectTimer = null;
   let closedIntentionally = false;
+  let lastConnectWasReconnect = false;
 
   const setState = (next) => {
     channelState = next;
@@ -70,6 +73,7 @@ export function createEventDeliveryChannel({
     clearReconnect();
     stopSource();
     setState(isReconnect ? "reconnecting" : "connecting");
+    lastConnectWasReconnect = isReconnect;
 
     let response;
     try {
@@ -109,9 +113,16 @@ export function createEventDeliveryChannel({
     }
     source.addEventListener("delivery.connected", () => {
       setState("connected");
+      onConnected({ isReconnect: lastConnectWasReconnect });
     });
     source.addEventListener("delivery.heartbeat", () => {
       if (channelState !== "connected") setState("connected");
+    });
+    source.addEventListener("session.messages.changed", (event) => {
+      try {
+        const frame = JSON.parse(event.data);
+        onExtensionFrame(frame);
+      } catch {}
     });
     source.addEventListener("error", () => {
       stopSource();

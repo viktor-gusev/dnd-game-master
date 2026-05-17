@@ -180,3 +180,46 @@ test("a different principal cannot reuse the same client instance while another 
   assert.throws(() => runtime.openStream({ streamToken: "token-2", request: makeRequest(), response: makeResponse() }), /another principal/);
   firstResponse.emit("close");
 });
+
+test("emitExtensionFrame writes a named extension event to every active recipient channel", async () => {
+  const registry = new ChannelRegistry();
+  const runtime = new Runtime({
+    principalResolver: { async resolvePrincipalRef() { return "principal-1"; } },
+    channelRegistry: registry,
+  });
+
+  registry.saveToken({
+    token: "token-1",
+    clientInstanceId: "0123456789abcdef0123456789abcdef",
+    principalRef: "principal-1",
+    expiresAt: new Date(Date.now() + 1000).toISOString(),
+  });
+  registry.saveToken({
+    token: "token-2",
+    clientInstanceId: "fedcba9876543210fedcba9876543210",
+    principalRef: "principal-1",
+    expiresAt: new Date(Date.now() + 1000).toISOString(),
+  });
+
+  const firstResponse = makeResponse();
+  const secondResponse = makeResponse();
+  runtime.openStream({ streamToken: "token-1", request: makeRequest(), response: firstResponse });
+  runtime.openStream({ streamToken: "token-2", request: makeRequest(), response: secondResponse });
+
+  const delivered = runtime.emitExtensionFrame({
+    name: "session.messages.changed",
+    principalRefs: ["principal-1"],
+    payload: { sessionId: "session-1", reason: "message_appended", messageId: "msg_1" },
+  });
+
+  assert.equal(delivered.length, 2);
+  assert.match(firstResponse.body, /event: session\.messages\.changed/);
+  assert.match(firstResponse.body, /"kind":"extension"/);
+  assert.match(firstResponse.body, /"name":"session\.messages\.changed"/);
+  assert.match(firstResponse.body, /"clientInstanceId":"0123456789abcdef0123456789abcdef"/);
+  assert.doesNotMatch(firstResponse.body, /"text":/);
+  assert.match(secondResponse.body, /"clientInstanceId":"fedcba9876543210fedcba9876543210"/);
+
+  firstResponse.emit("close");
+  secondResponse.emit("close");
+});
