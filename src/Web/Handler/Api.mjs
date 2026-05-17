@@ -125,6 +125,7 @@ export default class Dnd_Gm_Web_Handler_Api {
         id: `msg_${crypto.randomBytes(6).toString("hex")}`,
         sessionId,
         identityId: identity.id,
+        displayName: identity.displayName,
         type: body.type || "player_action",
         text: String(body.text).trim(),
         createdAt: new Date().toISOString(),
@@ -156,7 +157,12 @@ export default class Dnd_Gm_Web_Handler_Api {
       if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
       findParticipantOrThrow(current, identity.id);
       context.complete();
-      json(res, 200, success({ messages: current.messages }));
+      json(res, 200, success({
+        messages: current.messages.map((message) => ({
+          ...message,
+          displayName: message.displayName || current.participants.find((participant) => participant.identityId === message.identityId)?.displayName || message.identityId,
+        })),
+      }));
     };
 
     this.postEventDeliveryToken = async (req, res, context) => {

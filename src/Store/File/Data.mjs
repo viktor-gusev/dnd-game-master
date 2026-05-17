@@ -89,7 +89,13 @@ export default class Dnd_Gm_Store_File_Data {
       } catch (error) {
         if (error?.code !== "ENOENT") throw error;
       }
-      return { session, participants: participants.participants || [], messages };
+      const participantByIdentityId = new Map((participants.participants || []).map((participant) => [participant.identityId, participant]));
+      const normalizedMessages = messages.map((message) => {
+        const participant = participantByIdentityId.get(message.identityId);
+        const displayName = message.displayName || message.authorDisplayName || participant?.displayName || message.identityId;
+        return { ...message, displayName };
+      });
+      return { session, participants: participants.participants || [], messages: normalizedMessages };
     };
     this.createSession = async function (identity) {
       const fs = await import("node:fs/promises");

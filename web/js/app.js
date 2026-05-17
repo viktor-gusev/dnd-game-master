@@ -122,7 +122,8 @@ async function refreshMessages() {
   el("messages").innerHTML = "";
   for (const message of data.ok ? data.data.messages : []) {
     const li = document.createElement("li");
-    li.textContent = `${message.identityId}: ${message.text}`;
+    const timestamp = message.createdAt ? new Date(message.createdAt).toISOString().slice(11, 16) : "";
+    li.textContent = `[${timestamp}] ${message.displayName}: ${message.text}`;
     el("messages").appendChild(li);
   }
 }

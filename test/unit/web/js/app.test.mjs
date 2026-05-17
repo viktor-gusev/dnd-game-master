@@ -4,13 +4,19 @@ import assert from "node:assert/strict";
 const nodes = new Map();
 
 function makeField(id, value = "") {
+  const children = [];
   return {
     id,
     value,
     textContent: "",
     innerHTML: "",
     addEventListener() {},
-    appendChild() {},
+    appendChild(node) {
+      children.push(node);
+    },
+    get children() {
+      return children;
+    },
   };
 }
 
@@ -44,7 +50,18 @@ globalThis.Headers = class Headers {
 
 globalThis.fetch = async () => ({
   headers: { get() { return "application/json"; } },
-  json: async () => ({ ok: true, data: { messages: [] } }),
+  json: async () => ({
+    ok: true,
+    data: {
+      messages: [
+        {
+          displayName: "Alice",
+          createdAt: "2026-05-10T10:42:00.000Z",
+          text: "Hello there",
+        },
+      ],
+    },
+  }),
 });
 
 await import("../../../../web/js/app.js");
@@ -52,4 +69,5 @@ await import("../../../../web/js/app.js");
 test("browser entry restores stored state into inputs", () => {
   assert.equal(nodes.get("displayName").value, "Alice");
   assert.equal(nodes.get("sessionId").value, "session-1");
+  assert.equal(nodes.get("messages").children[0].textContent, "[10:42] Alice: Hello there");
 });
