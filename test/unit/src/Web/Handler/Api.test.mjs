@@ -76,7 +76,7 @@ function makeEventDelivery() {
     },
     emitExtensionFrame(frame) {
       this.emittedFrames.push(frame);
-      return [];
+      return []; 
     },
     openStream() {},
   };
@@ -186,6 +186,8 @@ test("POST /api/sessions/:sessionId/messages emits a freshness notification afte
   assert.equal(eventDelivery.emittedFrames[0].payload.reason, "message_appended");
   assert.ok(eventDelivery.emittedFrames[0].payload.messageId);
   assert.equal("text" in eventDelivery.emittedFrames[0].payload, false);
+  assert.equal(dataStore.sessions.get("session_1").messages[0].displayName, "Alice");
+  assert.ok(dataStore.sessions.get("session_1").messages[0].createdAt);
 });
 
 test("POST /api/sessions/:sessionId/messages rejects non-participants and emits nothing", async () => {
@@ -210,6 +212,47 @@ test("POST /api/sessions/:sessionId/messages rejects non-participants and emits 
   assert.equal(context.response.statusCode, 400);
   assert.equal(eventDelivery.emittedFrames.length, 0);
   assert.equal(dataStore.sessions.get("session_1").messages.length, 0);
+});
+
+test("GET /api/sessions/:sessionId/messages returns display names and timestamps", async () => {
+  const dataStore = makeDataStore();
+  const identity = await dataStore.upsertIdentity("Alice");
+  await dataStore.createSession(identity);
+  dataStore.sessions.get("session_1").messages.push({
+    id: "msg_1",
+    sessionId: "session_1",
+    identityId: identity.id,
+    text: "Hello there",
+    createdAt: "2026-05-10T00:00:00.000Z",
+  });
+  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "GET";
+  context.request.url = "http://localhost/api/sessions/session_1/messages";
+  context.request.headers["x-local-identity-id"] = identity.id;
+
+  await handler.handle(context);
+
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"displayName":"Alice"/);
+  assert.match(context.response.body, /"createdAt":"2026-05-10T00:00:00.000Z"/);
+});
+
+test("GET /api/sessions/:sessionId/messages rejects non-participants", async () => {
+  const dataStore = makeDataStore();
+  const alice = await dataStore.upsertIdentity("Alice");
+  const bob = await dataStore.upsertIdentity("Bob");
+  await dataStore.createSession(alice);
+  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "GET";
+  context.request.url = "http://localhost/api/sessions/session_1/messages";
+  context.request.headers["x-local-identity-id"] = bob.id;
+
+  await handler.handle(context);
+
+  assert.equal(context.response.statusCode, 400);
+  assert.match(context.response.body, /"invalid_input"/);
 });
 
 test("POST /api/sessions/:sessionId/messages stays successful when notification delivery fails", async () => {
