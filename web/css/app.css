@@ -93,8 +93,9 @@ input {
   display: grid;
   gap: 4px;
 }
-p, li, label, #status { color: var(--muted); }
-#status {
+p, li, label, #status, #channelStatus { color: var(--muted); }
+#status,
+#channelStatus {
   margin-bottom: 0;
 }
 ul {

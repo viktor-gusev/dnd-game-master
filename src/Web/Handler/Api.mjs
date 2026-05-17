@@ -13,6 +13,14 @@ function json(res, status, body) {
   }
 }
 
+function jsonNoStore(res, status, body) {
+  if (!res.writableEnded) {
+    res.setHeader("cache-control", "no-store");
+    res.setHeader("pragma", "no-cache");
+    json(res, status, body);
+  }
+}
+
 function error(code, message) {
   return { ok: false, error: { code, message } };
 }
@@ -33,9 +41,23 @@ async function readBody(req) {
   }
 }
 
+function logEventDeliveryFailure(req, err) {
+  const url = new URL(req.url, "http://localhost");
+  const tokenHint = url.pathname === "/api/event-delivery/stream" ? (url.searchParams.get("token") ? "present" : "missing") : undefined;
+  const details = [
+    `method=${req.method || "GET"}`,
+    `path=${url.pathname}`,
+    `errorCode=${err?.code || "internal_error"}`,
+  ];
+  if (req.headers?.["x-local-identity-id"]) details.push(`identityId=${req.headers["x-local-identity-id"]}`);
+  if (tokenHint) details.push(`token=${tokenHint}`);
+  console.warn(`[event-delivery] request failed ${details.join(" ")}`, err?.message ? `message=${err.message}` : "");
+}
+
 export default class Dnd_Gm_Web_Handler_Api {
-  constructor({ dataStore }) {
+  constructor({ dataStore, eventDelivery }) {
     this.dataStore = dataStore;
+    this.eventDelivery = eventDelivery;
     this.getRegistrationInfo = () => ({ name: this.constructor.name, stage: "PROCESS" });
 
     this.postLocalIdentity = async (req, res, context) => {
@@ -113,6 +135,31 @@ export default class Dnd_Gm_Web_Handler_Api {
       json(res, 200, success({ messages: current.messages }));
     };
 
+    this.postEventDeliveryToken = async (req, res, context) => {
+      res.setHeader("cache-control", "no-store");
+      res.setHeader("pragma", "no-cache");
+      const body = await readBody(req);
+      if ("principalRef" in body) throw Object.assign(new Error("principalRef is not accepted."), { code: "invalid_input" });
+      const token = await this.eventDelivery.issueToken({
+        clientInstanceId: body.clientInstanceId,
+        requestContext: context,
+      });
+      context.complete();
+      jsonNoStore(res, 200, success({ streamToken: token.streamToken, expiresAt: token.expiresAt }));
+    };
+
+    this.getEventDeliveryStream = async (req, res, context) => {
+      res.setHeader("cache-control", "no-store");
+      res.setHeader("pragma", "no-cache");
+      const url = new URL(req.url, "http://localhost");
+      this.eventDelivery.openStream({
+        streamToken: url.searchParams.get("token"),
+        request: req,
+        response: res,
+      });
+      context.complete();
+    };
+
     this.handle = async (context) => {
       const req = context.request;
       const res = context.response;
@@ -121,6 +168,8 @@ export default class Dnd_Gm_Web_Handler_Api {
       try {
         if (url.pathname === "/api/identity/local" && method === "POST") return await this.postLocalIdentity(req, res, context);
         if (url.pathname === "/api/identity/current" && method === "GET") return await this.getCurrentIdentity(req, res, context);
+        if (url.pathname === "/api/event-delivery/token" && method === "POST") return await this.postEventDeliveryToken(req, res, context);
+        if (url.pathname === "/api/event-delivery/stream" && method === "GET") return await this.getEventDeliveryStream(req, res, context);
         if (url.pathname === "/api/sessions" && method === "POST") return await this.createSession(req, res, context);
         const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(join|messages))?$/);
         if (sessionMatch) {
@@ -137,11 +186,18 @@ export default class Dnd_Gm_Web_Handler_Api {
         }
         return;
       } catch (err) {
+        if (url.pathname.startsWith("/api/event-delivery/")) logEventDeliveryFailure(req, err);
         if (err?.code === "invalid_json") return json(res, 400, error("invalid_json", "Invalid JSON body."));
         if (err?.code === "invalid_session_id") return json(res, 400, error("invalid_session_id", "Invalid session id."));
+        if (err?.code === "invalid_client_instance_id") return json(res, 400, error("invalid_client_instance_id", "Invalid client instance id."));
         if (err?.code === "invalid_input") return json(res, 400, error("invalid_input", err.message));
         if (err?.code === "missing_identity") return json(res, 400, error("missing_identity", "Missing local identity id."));
         if (err?.code === "unknown_identity") return json(res, 400, error("unknown_identity", "Unknown local identity id."));
+        if (err?.code === "principal_unresolved") return json(res, 400, error("principal_unresolved", "Unable to resolve principal ref."));
+        if (err?.code === "missing_token") return json(res, 400, error("missing_token", "Missing stream token."));
+        if (err?.code === "invalid_token") return json(res, 401, error("invalid_token", "Invalid stream token."));
+        if (err?.code === "expired_token") return json(res, 401, error("expired_token", "Expired stream token."));
+        if (err?.code === "security_conflict") return json(res, 409, error("security_conflict", "Client instance is already bound to another principal."));
         if (err?.code === "unknown_session") return json(res, 404, error("unknown_session", "Unknown session id."));
         return json(res, 500, error("internal_error", "Internal server error."));
       }
@@ -151,4 +207,5 @@ export default class Dnd_Gm_Web_Handler_Api {
 
 export const __deps__ = Object.freeze({
   dataStore: "Dnd_Gm_Store_File_Data$",
+  eventDelivery: "Dnd_Gm_Service_EventDelivery_Runtime$",
 });

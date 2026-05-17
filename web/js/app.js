@@ -1,7 +1,9 @@
 import { createApiErrorConsoleSummary } from "./Diagnostics/ApiErrorSummary.mjs";
+import { createEventDeliveryChannel, getOrCreateClientInstanceId } from "./event-delivery-client.js";
 import { loadLocalState, saveDisplayName, saveIdentityId, saveSessionId } from "./state/local-state.js";
 
 const state = loadLocalState(localStorage);
+const clientInstanceId = getOrCreateClientInstanceId(typeof sessionStorage === "undefined" ? null : sessionStorage);
 
 const el = (id) => document.getElementById(id);
 
@@ -29,6 +31,17 @@ async function mountDeveloperDiagnosticsPanel() {
     document.addEventListener("DOMContentLoaded", mount, { once: true });
   }
 }
+
+const channel = createEventDeliveryChannel({
+  clientInstanceId,
+  getRequestHeaders() {
+    return state.identityId ? { "x-local-identity-id": state.identityId } : {};
+  },
+  onStateChange(next) {
+    const status = el("channelStatus");
+    if (status) status.textContent = `Channel: ${next}`;
+  },
+});
 
 function saveState() {
   saveDisplayName(state.displayName, localStorage);
@@ -105,6 +118,7 @@ el("identityForm").addEventListener("submit", async (event) => {
     state.identityId = data.data.identityId;
     saveState();
     el("status").textContent = `Identity ready: ${state.identityId}`;
+    await channel.start();
   } else {
     el("status").textContent = data.error.message;
   }
@@ -162,3 +176,4 @@ saveState();
 el("displayName").value = state.displayName;
 el("sessionId").value = state.sessionId;
 if (state.sessionId) refreshMessages();
+if (state.identityId) void channel.start();

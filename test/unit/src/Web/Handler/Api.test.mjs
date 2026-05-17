@@ -64,13 +64,24 @@ function makeDataStore() {
   };
 }
 
+function makeEventDelivery() {
+  return {
+    issuedTokens: [],
+    issueToken({ clientInstanceId, requestContext }) {
+      this.issuedTokens.push({ clientInstanceId, requestContext });
+      return Promise.resolve({ streamToken: "token-1", expiresAt: "2026-05-17T00:00:00.000Z" });
+    },
+    openStream() {},
+  };
+}
+
 test("registration info reports PROCESS stage", () => {
-  const handler = new ApiHandler({ dataStore: makeDataStore() });
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
   assert.deepEqual(handler.getRegistrationInfo(), { name: "Dnd_Gm_Web_Handler_Api", stage: "PROCESS" });
 });
 
 test("POST /api/identity/local returns normalized success envelope", async () => {
-  const handler = new ApiHandler({ dataStore: makeDataStore() });
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
   const context = makeContext();
   context.request.method = "POST";
   context.request.url = "http://localhost/api/identity/local";
@@ -89,7 +100,7 @@ test("POST /api/identity/local returns normalized success envelope", async () =>
 });
 
 test("GET /api/identity/current rejects missing identity header", async () => {
-  const handler = new ApiHandler({ dataStore: makeDataStore() });
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
   const context = makeContext();
   context.request.method = "GET";
   context.request.url = "http://localhost/api/identity/current";
@@ -98,4 +109,45 @@ test("GET /api/identity/current rejects missing identity header", async () => {
 
   assert.equal(context.response.statusCode, 400);
   assert.match(context.response.body, /"missing_identity"/);
+});
+
+test("POST /api/event-delivery/token sends only clientInstanceId to the runtime and disables caching", async () => {
+  const eventDelivery = makeEventDelivery();
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery });
+  const context = makeContext();
+  context.request.method = "POST";
+  context.request.url = "http://localhost/api/event-delivery/token";
+  context.request = Object.assign(context.request, {
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify({ clientInstanceId: "0123456789abcdef0123456789abcdef" }));
+    },
+  });
+
+  await handler.handle(context);
+
+  assert.equal(context.response.statusCode, 200);
+  assert.equal(context.response.headers["cache-control"], "no-store");
+  assert.equal(eventDelivery.issuedTokens[0].clientInstanceId, "0123456789abcdef0123456789abcdef");
+  assert.equal(eventDelivery.issuedTokens[0].requestContext, context);
+  assert.match(context.response.body, /"streamToken":"token-1"/);
+});
+
+test("POST /api/event-delivery/token rejects principalRef in request body", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "POST";
+  context.request.url = "http://localhost/api/event-delivery/token";
+  context.request = Object.assign(context.request, {
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify({
+        clientInstanceId: "0123456789abcdef0123456789abcdef",
+        principalRef: "spoofed",
+      }));
+    },
+  });
+
+  await handler.handle(context);
+
+  assert.equal(context.response.statusCode, 400);
+  assert.match(context.response.body, /"invalid_input"/);
 });
