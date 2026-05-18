@@ -91,7 +91,13 @@ input {
 }
 .form-grid {
   display: grid;
-  gap: 4px;
+  gap: 16px;
+}
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 52vh;
+  gap: 12px;
 }
 p, li, label, #status, #channelStatus { color: var(--muted); }
 #status,
@@ -101,6 +107,24 @@ p, li, label, #status, #channelStatus { color: var(--muted); }
 ul {
   margin: 10px 0 0;
   padding-left: 20px;
+}
+#messages {
+  flex: 1;
+  margin: 0;
+  padding: 16px 16px 16px 36px;
+  list-style: disc;
+  overflow-y: auto;
+  min-height: 16rem;
+  max-height: 42vh;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(3, 8, 19, 0.45);
+}
+#messages li + li {
+  margin-top: 10px;
+}
+.chat-compose {
+  margin-top: auto;
 }
 button:hover,
 button:focus-visible {
@@ -115,7 +139,7 @@ button:focus-visible {
 @media (min-width: 720px) {
   .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 16px;
   }
   #identityForm,
   #messageForm {
@@ -124,5 +148,12 @@ button:focus-visible {
   #sessionForm,
   #joinForm {
     align-content: start;
+  }
+  .chat-panel {
+    grid-column: span 2;
+    min-height: 60vh;
+  }
+  #messages {
+    max-height: none;
   }
 }
