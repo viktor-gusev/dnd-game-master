@@ -97,8 +97,10 @@ input {
   display: flex;
   flex-direction: column;
   min-height: 52vh;
+  max-height: min(72vh, 44rem);
   gap: 12px;
   align-items: stretch;
+  overflow: hidden;
 }
 p, li, label, #status, #channelStatus { color: var(--muted); }
 #status,
@@ -115,7 +117,7 @@ ul {
   padding: 16px 16px 16px 36px;
   list-style: disc;
   overflow-y: auto;
-  min-height: 16rem;
+  min-height: 0;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   background: rgba(3, 8, 19, 0.45);
@@ -152,8 +154,9 @@ button:focus-visible {
   .chat-panel {
     grid-column: span 2;
     min-height: 60vh;
+    max-height: min(76vh, 48rem);
   }
   #messages {
-    min-height: 22rem;
+    min-height: 0;
   }
 }
