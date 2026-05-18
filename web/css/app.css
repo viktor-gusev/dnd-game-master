@@ -98,6 +98,7 @@ input {
   flex-direction: column;
   min-height: 52vh;
   gap: 12px;
+  align-items: stretch;
 }
 p, li, label, #status, #channelStatus { color: var(--muted); }
 #status,
@@ -109,13 +110,12 @@ ul {
   padding-left: 20px;
 }
 #messages {
-  flex: 1;
+  flex: 1 1 auto;
   margin: 0;
   padding: 16px 16px 16px 36px;
   list-style: disc;
   overflow-y: auto;
   min-height: 16rem;
-  max-height: 42vh;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   background: rgba(3, 8, 19, 0.45);
@@ -154,6 +154,6 @@ button:focus-visible {
     min-height: 60vh;
   }
   #messages {
-    max-height: none;
+    min-height: 22rem;
   }
 }

@@ -119,13 +119,15 @@ async function refreshMessages() {
   if (!state.sessionId || !state.identityId) return;
   const data = await api(`/api/sessions/${state.sessionId}/messages`, { method: "GET", operation: "load-messages" });
   el("status").textContent = data.ok ? "Loaded messages." : data.error.message;
-  el("messages").innerHTML = "";
+  const messages = el("messages");
+  messages.innerHTML = "";
   for (const message of data.ok ? data.data.messages : []) {
     const li = document.createElement("li");
     const timestamp = message.createdAt ? new Date(message.createdAt).toISOString().slice(11, 16) : "";
     li.textContent = `[${timestamp}] ${message.displayName}: ${message.text}`;
-    el("messages").appendChild(li);
+    messages.appendChild(li);
   }
+  messages.scrollTop = messages.scrollHeight;
 }
 
 el("identityForm").addEventListener("submit", async (event) => {
