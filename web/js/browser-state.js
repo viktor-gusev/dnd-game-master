@@ -1,19 +1,19 @@
 export const STORAGE_KEYS = {
-  displayName: "dnd-gm.displayName",
-  identityId: "dnd-gm.identityId",
+  uuid: "dnd-gm.identity.uuid",
+  nickname: "dnd-gm.identity.nickname",
   sessionId: "dnd-gm.sessionId",
 };
 
 export function loadBrowserState(storage) {
   return {
-    displayName: storage.getItem(STORAGE_KEYS.displayName) || "",
-    identityId: storage.getItem(STORAGE_KEYS.identityId) || "",
+    uuid: storage.getItem(STORAGE_KEYS.uuid) || "",
+    nickname: storage.getItem(STORAGE_KEYS.nickname) || "",
     sessionId: storage.getItem(STORAGE_KEYS.sessionId) || "",
   };
 }
 
 export function saveBrowserState(storage, state) {
-  storage.setItem(STORAGE_KEYS.displayName, state.displayName || "");
-  storage.setItem(STORAGE_KEYS.identityId, state.identityId || "");
+  storage.setItem(STORAGE_KEYS.uuid, state.uuid || "");
+  storage.setItem(STORAGE_KEYS.nickname, state.nickname || "");
   storage.setItem(STORAGE_KEYS.sessionId, state.sessionId || "");
 }

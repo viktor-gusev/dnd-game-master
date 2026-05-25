@@ -53,7 +53,12 @@ test("web server starts and serves static assets", async () => {
     const res = await waitFor(`http://127.0.0.1:${port}/`);
     assert.equal(res.status, 200);
     const body = await res.text();
-    assert.match(body, /AI co-Dungeon Master/);
+    assert.match(body, /Session Directory/);
+
+    const workspace = await waitFor(`http://127.0.0.1:${port}/session.html?sessionId=session-1`);
+    assert.equal(workspace.status, 200);
+    const workspaceBody = await workspace.text();
+    assert.match(workspaceBody, /Session Workspace/);
 
     const robots = await fetch(`http://127.0.0.1:${port}/robots.txt`);
     assert.equal(robots.status, 200);

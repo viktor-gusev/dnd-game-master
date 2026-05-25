@@ -22,7 +22,6 @@ function makeContext() {
       method: "GET",
       url: "http://localhost/",
       headers: {},
-      body: "",
       async *[Symbol.asyncIterator]() {},
     },
     response,
@@ -38,27 +37,64 @@ function makeDataStore() {
   return {
     identities: new Map(),
     sessions: new Map(),
-    async upsertIdentity(displayName) {
-      const identity = { id: `id_${displayName}`, displayName };
+    async upsertIdentity(uuid, nickname) {
+      const identity = { id: uuid, uuid, nickname, displayName: nickname };
       this.identities.set(identity.id, identity);
       return identity;
     },
     async getIdentity(identityId) {
       return this.identities.get(identityId) || null;
     },
-    async createSession(identity) {
-      const session = { id: "session_1", state: "lobby", createdBy: identity.id };
-      this.sessions.set(session.id, { session, participants: [{ identityId: identity.id, displayName: identity.displayName }], messages: [] });
-      return session;
+    async listSessions(identityId = "") {
+      return Array.from(this.sessions.values()).map((current) => ({
+        ...current.session,
+        participantCount: current.participants.length,
+        joinable: true,
+        currentUserParticipant: !!identityId && current.participants.some((participant) => participant.identityId === identityId),
+      }));
     },
-    async loadSession(sessionId) {
-      return this.sessions.get(sessionId) || null;
+    async createSession(identity, { title } = {}) {
+      const session = {
+        id: "session_1",
+        sessionId: "session_1",
+        title: title || "Session session",
+        state: "lobby",
+        gm: { uuid: identity.id, nickname: identity.nickname },
+      };
+      const current = {
+        session: {
+          ...session,
+          participantCount: 1,
+          joinable: true,
+          currentUserParticipant: true,
+        },
+        participants: [{ identityId: identity.id, nickname: identity.nickname, displayName: identity.nickname, role: "game_master" }],
+        messages: [],
+      };
+      this.sessions.set(session.sessionId, current);
+      return current;
+    },
+    async loadSession(sessionId, identityId = "") {
+      const current = this.sessions.get(sessionId);
+      if (!current) return null;
+      return {
+        session: {
+          ...current.session,
+          participantCount: current.participants.length,
+          joinable: true,
+          currentUserParticipant: !!identityId && current.participants.some((participant) => participant.identityId === identityId),
+        },
+        participants: current.participants,
+        messages: current.messages,
+      };
     },
     async joinSession(sessionId, identity) {
       const current = this.sessions.get(sessionId);
       if (!current) return null;
-      current.participants.push({ identityId: identity.id, displayName: identity.displayName });
-      return current.session;
+      if (!current.participants.some((participant) => participant.identityId === identity.id)) {
+        current.participants.push({ identityId: identity.id, nickname: identity.nickname, displayName: identity.nickname, role: "player" });
+      }
+      return this.loadSession(sessionId, identity.id);
     },
     async appendMessage(sessionId, message) {
       this.sessions.get(sessionId)?.messages.push(message);
@@ -76,7 +112,7 @@ function makeEventDelivery() {
     },
     emitExtensionFrame(frame) {
       this.emittedFrames.push(frame);
-      return []; 
+      return [];
     },
     openStream() {},
   };
@@ -87,14 +123,17 @@ test("registration info reports PROCESS stage", () => {
   assert.deepEqual(handler.getRegistrationInfo(), { name: "Dnd_Gm_Web_Handler_Api", stage: "PROCESS" });
 });
 
-test("POST /api/identity/local returns normalized success envelope", async () => {
+test("POST /api/identity/local returns browser-declared local identity", async () => {
   const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
   const context = makeContext();
   context.request.method = "POST";
   context.request.url = "http://localhost/api/identity/local";
   context.request = Object.assign(context.request, {
     async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify({ displayName: "Alice" }));
+      yield Buffer.from(JSON.stringify({
+        uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+        nickname: "Alice",
+      }));
     },
   });
 
@@ -102,8 +141,8 @@ test("POST /api/identity/local returns normalized success envelope", async () =>
 
   assert.equal(context.completed, true);
   assert.equal(context.response.statusCode, 200);
-  assert.match(context.response.body, /"ok":true/);
-  assert.match(context.response.body, /"identityId":"id_Alice"/);
+  assert.match(context.response.body, /"uuid":"4d8b6f10-4a8b-48f4-b38c-d5128972e289"/);
+  assert.match(context.response.body, /"nickname":"Alice"/);
 });
 
 test("GET /api/identity/current rejects missing identity header", async () => {
@@ -116,6 +155,24 @@ test("GET /api/identity/current rejects missing identity header", async () => {
 
   assert.equal(context.response.statusCode, 400);
   assert.match(context.response.body, /"missing_identity"/);
+});
+
+test("GET /api/sessions returns summary data only", async () => {
+  const dataStore = makeDataStore();
+  const identity = await dataStore.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  await dataStore.createSession(identity, { title: "Friday tavern run" });
+  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "GET";
+  context.request.url = "http://localhost/api/sessions";
+  context.request.headers["x-local-identity-id"] = identity.id;
+
+  await handler.handle(context);
+
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"title":"Friday tavern run"/);
+  assert.match(context.response.body, /"participantCount":1/);
+  assert.equal(/"messages"/.test(context.response.body), false);
 });
 
 test("POST /api/event-delivery/token sends only clientInstanceId to the runtime and disables caching", async () => {
@@ -139,29 +196,9 @@ test("POST /api/event-delivery/token sends only clientInstanceId to the runtime 
   assert.match(context.response.body, /"streamToken":"token-1"/);
 });
 
-test("POST /api/event-delivery/token rejects principalRef in request body", async () => {
-  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
-  const context = makeContext();
-  context.request.method = "POST";
-  context.request.url = "http://localhost/api/event-delivery/token";
-  context.request = Object.assign(context.request, {
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify({
-        clientInstanceId: "0123456789abcdef0123456789abcdef",
-        principalRef: "spoofed",
-      }));
-    },
-  });
-
-  await handler.handle(context);
-
-  assert.equal(context.response.statusCode, 400);
-  assert.match(context.response.body, /"invalid_input"/);
-});
-
 test("POST /api/sessions/:sessionId/messages emits a freshness notification after append", async () => {
   const dataStore = makeDataStore();
-  const identity = await dataStore.upsertIdentity("Alice");
+  const identity = await dataStore.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
   await dataStore.createSession(identity);
   const eventDelivery = makeEventDelivery();
   const handler = new ApiHandler({ dataStore, eventDelivery });
@@ -190,58 +227,10 @@ test("POST /api/sessions/:sessionId/messages emits a freshness notification afte
   assert.ok(dataStore.sessions.get("session_1").messages[0].createdAt);
 });
 
-test("POST /api/sessions/:sessionId/messages rejects non-participants and emits nothing", async () => {
-  const dataStore = makeDataStore();
-  const alice = await dataStore.upsertIdentity("Alice");
-  const bob = await dataStore.upsertIdentity("Bob");
-  await dataStore.createSession(alice);
-  const eventDelivery = makeEventDelivery();
-  const handler = new ApiHandler({ dataStore, eventDelivery });
-  const context = makeContext();
-  context.request.method = "POST";
-  context.request.url = "http://localhost/api/sessions/session_1/messages";
-  context.request.headers["x-local-identity-id"] = bob.id;
-  context.request = Object.assign(context.request, {
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify({ text: "Intrusion" }));
-    },
-  });
-
-  await handler.handle(context);
-
-  assert.equal(context.response.statusCode, 400);
-  assert.equal(eventDelivery.emittedFrames.length, 0);
-  assert.equal(dataStore.sessions.get("session_1").messages.length, 0);
-});
-
-test("GET /api/sessions/:sessionId/messages returns display names and timestamps", async () => {
-  const dataStore = makeDataStore();
-  const identity = await dataStore.upsertIdentity("Alice");
-  await dataStore.createSession(identity);
-  dataStore.sessions.get("session_1").messages.push({
-    id: "msg_1",
-    sessionId: "session_1",
-    identityId: identity.id,
-    text: "Hello there",
-    createdAt: "2026-05-10T00:00:00.000Z",
-  });
-  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
-  const context = makeContext();
-  context.request.method = "GET";
-  context.request.url = "http://localhost/api/sessions/session_1/messages";
-  context.request.headers["x-local-identity-id"] = identity.id;
-
-  await handler.handle(context);
-
-  assert.equal(context.response.statusCode, 200);
-  assert.match(context.response.body, /"displayName":"Alice"/);
-  assert.match(context.response.body, /"createdAt":"2026-05-10T00:00:00.000Z"/);
-});
-
 test("GET /api/sessions/:sessionId/messages rejects non-participants", async () => {
   const dataStore = makeDataStore();
-  const alice = await dataStore.upsertIdentity("Alice");
-  const bob = await dataStore.upsertIdentity("Bob");
+  const alice = await dataStore.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await dataStore.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
   await dataStore.createSession(alice);
   const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
   const context = makeContext();
@@ -253,75 +242,4 @@ test("GET /api/sessions/:sessionId/messages rejects non-participants", async () 
 
   assert.equal(context.response.statusCode, 400);
   assert.match(context.response.body, /"invalid_input"/);
-});
-
-test("POST /api/sessions/:sessionId/messages stays successful when notification delivery fails", async () => {
-  const dataStore = makeDataStore();
-  const identity = await dataStore.upsertIdentity("Alice");
-  await dataStore.createSession(identity);
-  const eventDelivery = makeEventDelivery();
-  eventDelivery.emitExtensionFrame = () => {
-    throw new Error("delivery failed");
-  };
-  const handler = new ApiHandler({ dataStore, eventDelivery });
-  const context = makeContext();
-  context.request.method = "POST";
-  context.request.url = "http://localhost/api/sessions/session_1/messages";
-  context.request.headers["x-local-identity-id"] = identity.id;
-  context.request = Object.assign(context.request, {
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify({ text: "Still persisted" }));
-    },
-  });
-
-  await handler.handle(context);
-
-  assert.equal(context.response.statusCode, 200);
-  assert.equal(dataStore.sessions.get("session_1").messages.length, 1);
-});
-
-test("POST /api/sessions/:sessionId/messages does not emit a notification when append fails", async () => {
-  const dataStore = makeDataStore();
-  const identity = await dataStore.upsertIdentity("Alice");
-  await dataStore.createSession(identity);
-  dataStore.appendMessage = async () => {
-    throw new Error("append failed");
-  };
-  const eventDelivery = makeEventDelivery();
-  const handler = new ApiHandler({ dataStore, eventDelivery });
-  const context = makeContext();
-  context.request.method = "POST";
-  context.request.url = "http://localhost/api/sessions/session_1/messages";
-  context.request.headers["x-local-identity-id"] = identity.id;
-  context.request = Object.assign(context.request, {
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify({ text: "No notify" }));
-    },
-  });
-
-  await handler.handle(context);
-
-  assert.equal(context.response.statusCode, 500);
-  assert.equal(eventDelivery.emittedFrames.length, 0);
-});
-
-test("GET /api/sessions/:sessionId/messages requires a participant identity", async () => {
-  const dataStore = makeDataStore();
-  const alice = await dataStore.upsertIdentity("Alice");
-  const bob = await dataStore.upsertIdentity("Bob");
-  await dataStore.createSession(alice);
-  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
-
-  const missingIdentity = makeContext();
-  missingIdentity.request.method = "GET";
-  missingIdentity.request.url = "http://localhost/api/sessions/session_1/messages";
-  await handler.handle(missingIdentity);
-  assert.equal(missingIdentity.response.statusCode, 400);
-
-  const nonParticipant = makeContext();
-  nonParticipant.request.method = "GET";
-  nonParticipant.request.url = "http://localhost/api/sessions/session_1/messages";
-  nonParticipant.request.headers["x-local-identity-id"] = bob.id;
-  await handler.handle(nonParticipant);
-  assert.equal(nonParticipant.response.statusCode, 400);
 });

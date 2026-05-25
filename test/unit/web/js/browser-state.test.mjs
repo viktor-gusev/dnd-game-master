@@ -18,22 +18,22 @@ function makeStorage(initial = {}) {
 
 test("loads browser state from localStorage", () => {
   const storage = makeStorage({
-    [STORAGE_KEYS.displayName]: "Alice",
-    [STORAGE_KEYS.identityId]: "identity-1",
+    [STORAGE_KEYS.uuid]: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    [STORAGE_KEYS.nickname]: "Alice",
     [STORAGE_KEYS.sessionId]: "session-1",
   });
 
   assert.deepEqual(loadBrowserState(storage), {
-    displayName: "Alice",
-    identityId: "identity-1",
+    uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    nickname: "Alice",
     sessionId: "session-1",
   });
 });
 
 test("loads empty browser state when storage is empty", () => {
   assert.deepEqual(loadBrowserState(makeStorage()), {
-    displayName: "",
-    identityId: "",
+    uuid: "",
+    nickname: "",
     sessionId: "",
   });
 });
@@ -41,12 +41,12 @@ test("loads empty browser state when storage is empty", () => {
 test("saves browser state to localStorage", () => {
   const storage = makeStorage();
   saveBrowserState(storage, {
-    displayName: "Bob",
-    identityId: "identity-2",
+    uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    nickname: "Bob",
     sessionId: "session-2",
   });
 
-  assert.equal(storage.values.get(STORAGE_KEYS.displayName), "Bob");
-  assert.equal(storage.values.get(STORAGE_KEYS.identityId), "identity-2");
+  assert.equal(storage.values.get(STORAGE_KEYS.uuid), "4d8b6f10-4a8b-48f4-b38c-d5128972e289");
+  assert.equal(storage.values.get(STORAGE_KEYS.nickname), "Bob");
   assert.equal(storage.values.get(STORAGE_KEYS.sessionId), "session-2");
 });

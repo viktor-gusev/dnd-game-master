@@ -1,73 +1,221 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const nodes = new Map();
+import { initializeDirectoryApp } from "../../../../web/js/directory.js";
 
-function makeField(id, value = "") {
-  const children = [];
-  return {
+function makeNode(id = "") {
+  const node = {
     id,
-    value,
+    value: "",
     textContent: "",
-    innerHTML: "",
+    className: "",
+    disabled: false,
+    attributes: {},
+    children: [],
+    listeners: new Map(),
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+    addEventListener(name, listener) {
+      this.listeners.set(name, listener);
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+
+  Object.defineProperty(node, "innerHTML", {
+    get() {
+      return "";
+    },
+    set() {
+      node.children = [];
+    },
+  });
+
+  return node;
+}
+
+function makeDocument() {
+  const nodes = new Map();
+  const body = makeNode("body");
+  return {
+    body,
+    querySelector() {
+      return null;
+    },
     addEventListener() {},
-    appendChild(node) {
-      children.push(node);
+    createElement(tagName) {
+      return makeNode(tagName);
     },
-    get children() {
-      return children;
+    getElementById(id) {
+      if (!nodes.has(id)) nodes.set(id, makeNode(id));
+      return nodes.get(id);
     },
+    nodes,
   };
 }
 
-globalThis.localStorage = {
-  getItem(key) {
-    return {
-      "dnd-gm.displayName": "Alice",
-      "dnd-gm.identityId": "identity-1",
-      "dnd-gm.sessionId": "session-1",
-    }[key] || null;
-  },
-  setItem() {},
-};
-
-globalThis.document = {
-  getElementById(id) {
-    if (!nodes.has(id)) {
-      nodes.set(id, makeField(id));
-    }
-    return nodes.get(id);
-  },
-  createElement() {
-    return makeField("li");
-  },
-};
-
-globalThis.Headers = class Headers {
-  constructor() {}
-  set() {}
-};
-
-globalThis.fetch = async () => ({
-  headers: { get() { return "application/json"; } },
-  json: async () => ({
-    ok: true,
-    data: {
-      messages: [
-        {
-          displayName: "Alice",
-          createdAt: "2026-05-10T10:42:00.000Z",
-          text: "Hello there",
-        },
-      ],
+function makeStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
     },
-  }),
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+    values,
+  };
+}
+
+test("directory entry restores local identity and renders session summaries", async () => {
+  const document = makeDocument();
+  const storage = makeStorage({
+    "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    "dnd-gm.identity.nickname": "Alice",
+  });
+  const locationApi = {
+    href: "http://localhost/",
+    assign() {},
+  };
+  const fetchCalls = [];
+
+  await initializeDirectoryApp({
+    document,
+    storage,
+    locationApi,
+    fetchImpl: async (path, options = {}) => {
+      fetchCalls.push([path, options.method || "GET"]);
+      if (path === "/api/identity/local") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return {
+              ok: true,
+              data: {
+                identity: {
+                  id: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  nickname: "Alice",
+                },
+              },
+            };
+          },
+        };
+      }
+      return {
+        ok: true,
+        headers: { get() { return "application/json"; } },
+        async json() {
+          return {
+            ok: true,
+            data: {
+              sessions: [
+                {
+                  sessionId: "session-1",
+                  title: "Friday tavern run",
+                  state: "lobby",
+                  gm: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+                  participantCount: 1,
+                  joinable: true,
+                  currentUserParticipant: true,
+                },
+              ],
+            },
+          };
+        },
+      };
+    },
+  });
+
+  assert.equal(document.getElementById("identityUuid").value, "4d8b6f10-4a8b-48f4-b38c-d5128972e289");
+  assert.equal(document.getElementById("identityNickname").value, "Alice");
+  assert.equal(document.getElementById("sessionDirectory").children.length, 1);
+  assert.equal(fetchCalls[0][0], "/api/identity/local");
+  assert.equal(fetchCalls.at(-1)[0], "/api/sessions");
 });
 
-await import("../../../../web/js/app.js");
+test("directory joins a listed session and navigates to the workspace", async () => {
+  const document = makeDocument();
+  const storage = makeStorage({
+    "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    "dnd-gm.identity.nickname": "Alice",
+  });
+  let assignedTo = "";
+  const locationApi = {
+    href: "http://localhost/",
+    assign(url) {
+      assignedTo = url;
+    },
+  };
+  const fetchCalls = [];
 
-test("browser entry restores stored state into inputs", () => {
-  assert.equal(nodes.get("displayName").value, "Alice");
-  assert.equal(nodes.get("sessionId").value, "session-1");
-  assert.equal(nodes.get("messages").children[0].textContent, "[10:42] Alice: Hello there");
+  await initializeDirectoryApp({
+    document,
+    storage,
+    locationApi,
+    fetchImpl: async (path, options = {}) => {
+      fetchCalls.push([path, options.method || "GET"]);
+      if (path === "/api/identity/local") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return {
+              ok: true,
+              data: {
+                identity: {
+                  id: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  nickname: "Alice",
+                },
+              },
+            };
+          },
+        };
+      }
+      if (path === "/api/sessions") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return {
+              ok: true,
+              data: {
+                sessions: [
+                  {
+                    sessionId: "session-2",
+                    title: "Open table",
+                    state: "lobby",
+                    gm: { uuid: "c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", nickname: "Bob" },
+                    participantCount: 1,
+                    joinable: true,
+                    currentUserParticipant: false,
+                  },
+                ],
+              },
+            };
+          },
+        };
+      }
+      return {
+        ok: true,
+        headers: { get() { return "application/json"; } },
+        async json() {
+          return { ok: true, data: { sessionId: "session-2" } };
+        },
+      };
+    },
+  });
+
+  const card = document.getElementById("sessionDirectory").children[0];
+  const joinButton = card.children[3].children[0];
+  await joinButton.listeners.get("click")();
+
+  assert.equal(fetchCalls.at(-1)[0], "/api/sessions/session-2/join");
+  assert.equal(storage.getItem("dnd-gm.sessionId"), "session-2");
+  assert.equal(assignedTo, "/session.html?sessionId=session-2");
 });

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Session Workspace · DND Game Master</title>
+    <link rel="stylesheet" href="/css/app.css">
+  </head>
+  <body>
+    <main id="workspaceShell">
+      <header class="hero panel">
+        <p class="eyebrow">Session Workspace</p>
+        <h1 id="sessionTitle">Loading session…</h1>
+        <p id="sessionSubtitle">Joining selected session.</p>
+        <p id="status">Preparing workspace.</p>
+        <p id="channelStatus">Channel: closed</p>
+        <p><a id="backToDirectory" href="/">Back to Session Directory</a></p>
+      </header>
+
+      <section class="panel two-column-layout workspace-grid">
+        <div class="card-form">
+          <h2>Participants</h2>
+          <ul id="participants" class="participant-list"></ul>
+        </div>
+
+        <div class="chat-panel card-form">
+          <h2>Gameplay Chat</h2>
+          <ul id="messages"></ul>
+          <form id="messageForm" class="chat-compose">
+            <input id="messageText" name="messageText" placeholder="Send a chat message" autocomplete="off" autocapitalize="sentences" spellcheck="true" enterkeyhint="send" required>
+            <button type="submit">Send message</button>
+          </form>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/js/session-workspace.js"></script>
+  </body>
+</html>

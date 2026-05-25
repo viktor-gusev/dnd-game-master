@@ -66,70 +66,83 @@ export default class Dnd_Gm_Web_Handler_Api {
     this.eventDelivery = eventDelivery;
     this.getRegistrationInfo = () => ({ name: this.constructor.name, stage: "PROCESS" });
 
-    this.postLocalIdentity = async (req, res, context) => {
-      const body = await readBody(req);
-      const identity = await this.dataStore.upsertIdentity(body.displayName);
-      context.complete();
-      json(res, 200, success({ identityId: identity.id, displayName: identity.displayName }));
-    };
-
-    this.getCurrentIdentity = async (req, res, context) => {
+    this.resolveIdentityFromHeader = async (req) => {
       const identityId = req.headers["x-local-identity-id"];
       if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
       const identity = await this.dataStore.getIdentity(identityId);
       if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
+      return identity;
+    };
+
+    this.postLocalIdentity = async (req, res, context) => {
+      const body = await readBody(req);
+      const identity = await this.dataStore.upsertIdentity(body.uuid, body.nickname);
       context.complete();
       json(res, 200, success({ identity }));
     };
 
-    this.createSession = async (req, res, context) => {
-      const identityId = req.headers["x-local-identity-id"];
-      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-      const identity = await this.dataStore.getIdentity(identityId);
-      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-      const session = await this.dataStore.createSession(identity);
+    this.getCurrentIdentity = async (req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
       context.complete();
-      json(res, 200, success({ sessionId: session.id, session }));
+      json(res, 200, success({ identity }));
     };
 
-    this.getSession = async (sessionId, res, context) => {
-      const current = await this.dataStore.loadSession(sessionId);
+    this.listSessions = async (req, res, context) => {
+      const identityId = req.headers["x-local-identity-id"] || "";
+      if (identityId) await this.resolveIdentityFromHeader(req);
+      const sessions = await this.dataStore.listSessions(identityId);
+      context.complete();
+      json(res, 200, success({ sessions }));
+    };
+
+    this.createSession = async (req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const current = await this.dataStore.createSession(identity, { title: body.title });
+      context.complete();
+      json(res, 200, success({ sessionId: current.session.sessionId, session: current.session }));
+    };
+
+    this.getSession = async (sessionId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadSession(sessionId, identity.id);
       if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      findParticipantOrThrow(current, identity.id);
       context.complete();
       json(res, 200, success({ session: current.session, participants: current.participants }));
     };
 
     this.joinSession = async (sessionId, req, res, context) => {
-      const identityId = req.headers["x-local-identity-id"];
-      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-      const identity = await this.dataStore.getIdentity(identityId);
-      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-      const session = await this.dataStore.joinSession(sessionId, identity);
-      if (!session) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.joinSession(sessionId, identity);
+      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
       context.complete();
-      json(res, 200, success({ sessionId: session.id, joined: true }));
+      json(res, 200, success({ sessionId: current.session.sessionId, joined: true, session: current.session }));
     };
 
     this.postMessage = async (sessionId, req, res, context) => {
       const crypto = await import("node:crypto");
-      const identityId = req.headers["x-local-identity-id"];
-      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-      const identity = await this.dataStore.getIdentity(identityId);
-      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-      const current = await this.dataStore.loadSession(sessionId);
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadSession(sessionId, identity.id);
       if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
       findParticipantOrThrow(current, identity.id);
+
       const body = await readBody(req);
-      if (!body.text || !String(body.text).trim()) throw Object.assign(new Error("Message text is required."), { code: "invalid_input" });
+      if (!body.text || !String(body.text).trim()) {
+        throw Object.assign(new Error("Message text is required."), { code: "invalid_input" });
+      }
+
       const message = {
         id: `msg_${crypto.randomBytes(6).toString("hex")}`,
         sessionId,
         identityId: identity.id,
-        displayName: identity.displayName,
+        nickname: identity.nickname,
+        displayName: identity.nickname,
         type: body.type || "player_action",
         text: String(body.text).trim(),
         createdAt: new Date().toISOString(),
       };
+
       await this.dataStore.appendMessage(sessionId, message);
       try {
         this.eventDelivery.emitExtensionFrame({
@@ -141,28 +154,21 @@ export default class Dnd_Gm_Web_Handler_Api {
             messageId: message.id,
           },
         });
-      } catch (error) {
-        console.warn(`[event-delivery] message notification failed sessionId=${sessionId}`, error?.message || error);
+      } catch (notifyError) {
+        console.warn(`[event-delivery] message notification failed sessionId=${sessionId}`, notifyError?.message || notifyError);
       }
+
       context.complete();
       json(res, 200, success({ message }));
     };
 
     this.getMessages = async (sessionId, req, res, context) => {
-      const identityId = req.headers["x-local-identity-id"];
-      if (!identityId) throw Object.assign(new Error("Missing local identity id."), { code: "missing_identity" });
-      const identity = await this.dataStore.getIdentity(identityId);
-      if (!identity) throw Object.assign(new Error("Unknown local identity id."), { code: "unknown_identity" });
-      const current = await this.dataStore.loadSession(sessionId);
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadSession(sessionId, identity.id);
       if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
       findParticipantOrThrow(current, identity.id);
       context.complete();
-      json(res, 200, success({
-        messages: current.messages.map((message) => ({
-          ...message,
-          displayName: message.displayName || current.participants.find((participant) => participant.identityId === message.identityId)?.displayName || message.identityId,
-        })),
-      }));
+      json(res, 200, success({ messages: current.messages }));
     };
 
     this.postEventDeliveryToken = async (req, res, context) => {
@@ -200,16 +206,19 @@ export default class Dnd_Gm_Web_Handler_Api {
         if (url.pathname === "/api/identity/current" && method === "GET") return await this.getCurrentIdentity(req, res, context);
         if (url.pathname === "/api/event-delivery/token" && method === "POST") return await this.postEventDeliveryToken(req, res, context);
         if (url.pathname === "/api/event-delivery/stream" && method === "GET") return await this.getEventDeliveryStream(req, res, context);
+        if (url.pathname === "/api/sessions" && method === "GET") return await this.listSessions(req, res, context);
         if (url.pathname === "/api/sessions" && method === "POST") return await this.createSession(req, res, context);
+
         const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(join|messages))?$/);
         if (sessionMatch) {
           const sessionId = sessionMatch[1];
           const action = sessionMatch[2] || null;
-          if (action === null && method === "GET") return await this.getSession(sessionId, res, context);
+          if (action === null && method === "GET") return await this.getSession(sessionId, req, res, context);
           if (action === "join" && method === "POST") return await this.joinSession(sessionId, req, res, context);
           if (action === "messages" && method === "POST") return await this.postMessage(sessionId, req, res, context);
           if (action === "messages" && method === "GET") return await this.getMessages(sessionId, req, res, context);
         }
+
         if (url.pathname.startsWith("/api/")) {
           context.complete();
           return json(res, 404, error("not_found", "Not found."));

@@ -49,12 +49,16 @@ test("first-slice identity and session APIs respond through the runtime", async 
     const res = await fetch(`http://127.0.0.1:${port}/api/identity/local`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ displayName: "Alice" }),
+      body: JSON.stringify({
+        uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+        nickname: "Alice",
+      }),
     });
     assert.equal(res.status, 200);
     const json = await res.json();
     assert.equal(json.ok, true);
-    assert.ok(json.data.identityId);
+    assert.equal(json.data.identity.uuid, "4d8b6f10-4a8b-48f4-b38c-d5128972e289");
+    assert.equal(json.data.identity.nickname, "Alice");
   } finally {
     child.kill("SIGTERM");
     await exited;
@@ -62,17 +66,21 @@ test("first-slice identity and session APIs respond through the runtime", async 
   assert.equal(stderrRef(), "");
 });
 
-test("static UI exposes the first-slice browser entrypoint", async () => {
+test("static UI exposes session directory and session workspace entrypoints", async () => {
   const port = await getFreePort();
   const { child } = await startApp(port);
   const exited = new Promise((resolve) => child.once("exit", resolve));
 
   try {
-    const res = await waitFor(`http://127.0.0.1:${port}/`);
-    const html = await res.text();
-    assert.match(html, /DND Game Master/);
-    assert.match(html, /Create a local identity to begin\./);
-    assert.match(html, /\/js\/app\.js/);
+    const directory = await waitFor(`http://127.0.0.1:${port}/`);
+    const directoryHtml = await directory.text();
+    assert.match(directoryHtml, /Session Directory/);
+    assert.match(directoryHtml, /\/js\/directory\.js/);
+
+    const workspace = await waitFor(`http://127.0.0.1:${port}/session.html?sessionId=session-1`);
+    const workspaceHtml = await workspace.text();
+    assert.match(workspaceHtml, /Session Workspace/);
+    assert.match(workspaceHtml, /\/js\/session-workspace\.js/);
   } finally {
     child.kill("SIGTERM");
     await exited;

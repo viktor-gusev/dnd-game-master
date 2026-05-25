@@ -39,14 +39,22 @@ async function startApp(port, env = {}) {
   return child;
 }
 
-async function createIdentity(port, displayName) {
+function identityUuidFor(nickname) {
+  return {
+    Alice: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    Bob: "c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9",
+    Eve: "f8d3b8f6-0f2d-4a4a-9f28-a64c8472e1ef",
+  }[nickname] || "9a98d1f0-4a53-4cb5-ae80-06b2d7f9f001";
+}
+
+async function createIdentity(port, nickname) {
   const res = await fetch(`http://127.0.0.1:${port}/api/identity/local`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ displayName }),
+    body: JSON.stringify({ uuid: identityUuidFor(nickname), nickname }),
   });
   const json = await res.json();
-  return json.data.identityId;
+  return json.data.identity.uuid;
 }
 
 async function requestToken(port, identityId, body) {
