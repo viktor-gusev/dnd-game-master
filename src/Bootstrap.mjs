@@ -55,7 +55,7 @@ function parsePort(cliArgs) {
 }
 
 export default class Bootstrap {
-  constructor({ pipeline, server, staticHandler, sourceFactory, configFactory, apiHandler }) {
+  constructor({ pipeline, server, staticHandler, sourceFactory, configFactory, apiHandler, dataStore }) {
     let running = false;
     let stoppedBeforeRun = false;
     let done = null;
@@ -65,6 +65,10 @@ export default class Bootstrap {
     this.run = async function ({ projectRoot, cliArgs }) {
       if (stoppedBeforeRun) return 0;
       await loadEnvFile(`${projectRoot}/.env`);
+      if (dataStore) {
+        await dataStore.init();
+        await dataStore.cleanupExpiredSessions();
+      }
       const port = parsePort(cliArgs);
       const webRoot = `${projectRoot}/web`;
       const source = sourceFactory.create({ root: webRoot, prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] });
@@ -109,5 +113,5 @@ export const __deps__ = Object.freeze({
   sourceFactory: "Fl32_Web_Back_Dto_Source__Factory$",
   configFactory: "Fl32_Web_Back_Config_Runtime__Factory$",
   apiHandler: "Dnd_Gm_Web_Handler_Api$",
+  dataStore: "Dnd_Gm_Store_File_Data$",
 });
-

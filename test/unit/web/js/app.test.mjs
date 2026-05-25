@@ -195,6 +195,7 @@ test("selecting a compact session item opens detail without navigating and expli
     document,
     storage,
     locationApi,
+    confirmImpl: () => false,
     fetchImpl: async (path, options = {}) => {
       fetchCalls.push([path, options.method || "GET"]);
       if (path === "/api/identity/local") {
@@ -303,14 +304,12 @@ test("selecting a compact session item opens detail without navigating and expli
   assert.match(collectText(document.getElementById("selectedSessionDetail")), /Open table/);
   assert.match(collectText(document.getElementById("selectedSessionDetail")), /session-2/);
   assert.match(collectText(document.getElementById("selectedSessionDetail")), /Bob/);
+  assert.equal(/Delete Session/i.test(collectText(document.getElementById("selectedSessionDetail"))), false);
   assert.equal(/Delete Session/i.test(collectText(secondItem)), false);
   assert.equal(/State:|Participants:|You are in this session|Joinable status:/i.test(collectText(secondItem)), false);
 
   const deleteButton = findButtonByText(document.getElementById("selectedSessionDetail"), "Delete Session");
-  assert.ok(deleteButton);
-  if (deleteButton.disabled !== true) {
-    await deleteButton.listeners.get("click")?.();
-  }
+  assert.equal(deleteButton, null);
   assert.equal(fetchCalls.some(([path, method]) => method === "DELETE" && path === "/api/sessions/session-2"), false);
   assert.equal(document.getElementById("sessionDirectory").children.length, 2);
   assert.equal(storage.getItem("dnd-gm.sessionId"), initialStoredSessionId);
@@ -321,4 +320,156 @@ test("selecting a compact session item opens detail without navigating and expli
   assert.equal(fetchCalls.at(-1)[0], "/api/sessions/session-2/join");
   assert.equal(storage.getItem("dnd-gm.sessionId"), "session-2");
   assert.equal(assignedTo, "/session.html?sessionId=session-2");
+});
+
+test("directory deletion confirmation cancel does not call API or mutate selection", async () => {
+  const document = makeDocument();
+  const storage = makeStorage({
+    "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    "dnd-gm.identity.nickname": "Alice",
+  });
+  let confirmCount = 0;
+  const fetchCalls = [];
+
+  await initializeDirectoryApp({
+    document,
+    storage,
+    confirmImpl: () => {
+      confirmCount += 1;
+      return false;
+    },
+    fetchImpl: async (path, options = {}) => {
+      fetchCalls.push([path, options.method || "GET"]);
+      if (path === "/api/identity/local") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return {
+              ok: true,
+              data: {
+                identity: {
+                  id: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  nickname: "Alice",
+                },
+              },
+            };
+          },
+        };
+      }
+      return {
+        ok: true,
+        headers: { get() { return "application/json"; } },
+        async json() {
+          return {
+            ok: true,
+            data: {
+              sessions: [
+                {
+                  sessionId: "session-1",
+                  title: "Friday tavern run",
+                  state: "lobby",
+                  gm: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+                  participantCount: 1,
+                  joinable: true,
+                  currentUserParticipant: true,
+                },
+              ],
+            },
+          };
+        },
+      };
+    },
+  });
+
+  const firstItem = document.getElementById("sessionDirectory").children[0];
+  await firstItem.listeners.get("click")?.();
+  const deleteButton = findButtonByText(document.getElementById("selectedSessionDetail"), "Delete Session");
+
+  await deleteButton.listeners.get("click")?.();
+
+  assert.equal(confirmCount, 1);
+  assert.equal(fetchCalls.some(([path, method]) => method === "DELETE" && path === "/api/sessions/session-1"), false);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /Friday tavern run/);
+  assert.equal(document.getElementById("sessionDirectory").children.length, 1);
+});
+
+test("directory deletion success refreshes the list and clears selected detail", async () => {
+  const document = makeDocument();
+  const storage = makeStorage({
+    "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+    "dnd-gm.identity.nickname": "Alice",
+  });
+  const fetchCalls = [];
+  let sessionsCallCount = 0;
+
+  await initializeDirectoryApp({
+    document,
+    storage,
+    confirmImpl: () => true,
+    fetchImpl: async (path, options = {}) => {
+      fetchCalls.push([path, options.method || "GET"]);
+      if (path === "/api/identity/local") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return {
+              ok: true,
+              data: {
+                identity: {
+                  id: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
+                  nickname: "Alice",
+                },
+              },
+            };
+          },
+        };
+      }
+      if (path === "/api/sessions" && (options.method || "GET") === "GET") {
+        sessionsCallCount += 1;
+        const sessions = sessionsCallCount === 1
+          ? [{
+            sessionId: "session-1",
+            title: "Friday tavern run",
+            state: "lobby",
+            gm: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+            participantCount: 1,
+            joinable: true,
+            currentUserParticipant: true,
+          }]
+          : [];
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return { ok: true, data: { sessions } };
+          },
+        };
+      }
+      if (path === "/api/sessions/session-1" && (options.method || "GET") === "DELETE") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return { ok: true, data: { sessionId: "session-1", deleted: true } };
+          },
+        };
+      }
+      throw new Error(`Unexpected fetch path: ${path}`);
+    },
+  });
+
+  const firstItem = document.getElementById("sessionDirectory").children[0];
+  await firstItem.listeners.get("click")?.();
+  const deleteButton = findButtonByText(document.getElementById("selectedSessionDetail"), "Delete Session");
+
+  await deleteButton.listeners.get("click")?.();
+
+  assert.equal(fetchCalls.some(([path, method]) => method === "DELETE" && path === "/api/sessions/session-1"), true);
+  assert.equal(document.getElementById("selectedSessionDetail").children.length, 0);
+  assert.match(document.getElementById("status").textContent, /Session deleted/);
+  assert.match(document.getElementById("sessionDirectorySummary").textContent, /0 session/i);
 });

@@ -80,7 +80,7 @@ function createSessionSummary(session, doc) {
   return summary;
 }
 
-function renderSelectedSessionDetail(selectedSession, { document: doc, onOpen, onJoin, onDeleteStub }) {
+function renderSelectedSessionDetail(selectedSession, { document: doc, currentIdentityId, onOpen, onJoin, onDelete }) {
   const container = el("selectedSessionDetail", doc);
   if (!container) return;
   container.innerHTML = "";
@@ -127,19 +127,15 @@ function renderSelectedSessionDetail(selectedSession, { document: doc, onOpen, o
     },
   }));
 
-  const deleteButton = createActionButton(doc, {
-    label: "Delete Session",
-    disabled: true,
-    onClick() {
-      if (typeof onDeleteStub === "function") onDeleteStub(selectedSession.sessionId);
-    },
-  });
-  deleteButton.setAttribute("aria-disabled", "true");
+  if (selectedSession.gm?.uuid === currentIdentityId) {
+    actions.appendChild(createActionButton(doc, {
+      label: "Delete Session",
+      onClick() {
+        return onDelete(selectedSession.sessionId);
+      },
+    }));
+  }
 
-  const deleteHint = doc.createElement("p");
-  deleteHint.textContent = "Session deletion is not implemented yet.";
-
-  actions.appendChild(deleteButton);
   card.appendChild(eyebrow);
   card.appendChild(title);
   card.appendChild(idLine);
@@ -149,7 +145,6 @@ function renderSelectedSessionDetail(selectedSession, { document: doc, onOpen, o
   card.appendChild(participationLine);
   card.appendChild(joinableLine);
   card.appendChild(actions);
-  card.appendChild(deleteHint);
   container.appendChild(card);
 }
 
@@ -207,6 +202,7 @@ export async function initializeDirectoryApp({
   locationApi = globalThis.location,
   cryptoApi = globalThis.crypto,
   fetchImpl = globalThis.fetch,
+  confirmImpl = globalThis.confirm ? globalThis.confirm.bind(globalThis) : () => false,
 } = {}) {
   if (!doc?.getElementById) return;
 
@@ -272,6 +268,7 @@ export async function initializeDirectoryApp({
 
     renderSelectedSessionDetail(findSelectedSession(), {
       document: doc,
+      currentIdentityId: state.uuid,
       onOpen(sessionId) {
         state.sessionId = sessionId;
         saveSessionId(sessionId, storage);
@@ -291,8 +288,18 @@ export async function initializeDirectoryApp({
         saveSessionId(sessionId, storage);
         navigateToSession(sessionId, locationApi);
       },
-      onDeleteStub() {
-        setStatus("Session deletion is not implemented yet.");
+      async onDelete(sessionId) {
+        if (!confirmImpl("Delete this session permanently?")) return;
+        const response = await api(`/api/sessions/${sessionId}`, {
+          method: "DELETE",
+          operation: "delete-session",
+        });
+        if (!response.ok) {
+          setStatus(response.error?.message || "Failed to delete session.");
+          return;
+        }
+        await refreshSessions();
+        setStatus("Session deleted.");
       },
     });
   }

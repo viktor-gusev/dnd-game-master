@@ -120,6 +120,19 @@ export default class Dnd_Gm_Web_Handler_Api {
       json(res, 200, success({ sessionId: current.session.sessionId, joined: true, session: current.session }));
     };
 
+    this.deleteSession = async (sessionId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadSession(sessionId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      if (current.session.gm?.uuid !== identity.id) {
+        throw Object.assign(new Error("Only the Game Master may delete this session."), { code: "forbidden" });
+      }
+      const deleted = await this.dataStore.deleteSession(sessionId);
+      if (!deleted) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
+      context.complete();
+      json(res, 200, success({ sessionId, deleted: true }));
+    };
+
     this.postMessage = async (sessionId, req, res, context) => {
       const crypto = await import("node:crypto");
       const identity = await this.resolveIdentityFromHeader(req);
@@ -214,6 +227,7 @@ export default class Dnd_Gm_Web_Handler_Api {
           const sessionId = sessionMatch[1];
           const action = sessionMatch[2] || null;
           if (action === null && method === "GET") return await this.getSession(sessionId, req, res, context);
+          if (action === null && method === "DELETE") return await this.deleteSession(sessionId, req, res, context);
           if (action === "join" && method === "POST") return await this.joinSession(sessionId, req, res, context);
           if (action === "messages" && method === "POST") return await this.postMessage(sessionId, req, res, context);
           if (action === "messages" && method === "GET") return await this.getMessages(sessionId, req, res, context);
@@ -232,6 +246,7 @@ export default class Dnd_Gm_Web_Handler_Api {
         if (err?.code === "invalid_input") return json(res, 400, error("invalid_input", err.message));
         if (err?.code === "missing_identity") return json(res, 400, error("missing_identity", "Missing local identity id."));
         if (err?.code === "unknown_identity") return json(res, 400, error("unknown_identity", "Unknown local identity id."));
+        if (err?.code === "forbidden") return json(res, 403, error("forbidden", err.message || "Forbidden."));
         if (err?.code === "principal_unresolved") return json(res, 400, error("principal_unresolved", "Unable to resolve principal ref."));
         if (err?.code === "missing_token") return json(res, 400, error("missing_token", "Missing stream token."));
         if (err?.code === "invalid_token") return json(res, 401, error("invalid_token", "Invalid stream token."));

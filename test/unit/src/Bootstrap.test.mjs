@@ -8,6 +8,14 @@ import Bootstrap from "../../../src/Bootstrap.mjs";
 
 function makeDeps() {
   const calls = [];
+  const dataStore = {
+    async init() {
+      calls.push(["dataStore.init"]);
+    },
+    async cleanupExpiredSessions() {
+      calls.push(["dataStore.cleanupExpiredSessions"]);
+    },
+  };
   const pipeline = {
     addHandler(handler) {
       calls.push(["pipeline.addHandler", handler]);
@@ -40,7 +48,7 @@ function makeDeps() {
       return { ...args };
     },
   };
-  return { calls, pipeline, server, staticHandler, sourceFactory, configFactory };
+  return { calls, pipeline, server, staticHandler, sourceFactory, configFactory, dataStore };
 }
 
 function withEnv(name, value, fn) {
@@ -132,12 +140,28 @@ test("initializes static handler and registers it before server start", async ()
   const run = app.run({ projectRoot: "/tmp/project", cliArgs: [] });
   await waitUntilServerStart(deps);
   await app.stop();
-  assert.deepEqual(deps.calls[0], ["sourceFactory.create", { root: "/tmp/project/web", prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] }]);
-  assert.deepEqual(deps.calls[1], ["staticHandler.init", { sources: [{ root: "/tmp/project/web", prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] }] }]);
-  assert.equal(deps.calls[2][0], "pipeline.addHandler");
-  assert.equal(deps.calls[3][0], "configFactory.configure");
-  assert.equal(deps.calls[4][0], "configFactory.freeze");
-  assert.equal(deps.calls[5][0], "server.start");
+  assert.equal(deps.calls[0][0], "dataStore.init");
+  assert.equal(deps.calls[1][0], "dataStore.cleanupExpiredSessions");
+  assert.deepEqual(deps.calls[2], ["sourceFactory.create", { root: "/tmp/project/web", prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] }]);
+  assert.deepEqual(deps.calls[3], ["staticHandler.init", { sources: [{ root: "/tmp/project/web", prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] }] }]);
+  assert.equal(deps.calls[4][0], "pipeline.addHandler");
+  assert.equal(deps.calls[5][0], "configFactory.configure");
+  assert.equal(deps.calls[6][0], "configFactory.freeze");
+  assert.equal(deps.calls[7][0], "server.start");
+  await run;
+});
+
+test("startup cleanup completes before server start", async () => {
+  const deps = makeDeps();
+  const app = new Bootstrap(deps);
+  const run = app.run({ projectRoot: "/tmp/project", cliArgs: [] });
+  await waitUntilServerStart(deps);
+  await app.stop();
+
+  const cleanupIndex = deps.calls.findIndex((x) => x[0] === "dataStore.cleanupExpiredSessions");
+  const startIndex = deps.calls.findIndex((x) => x[0] === "server.start");
+  assert.ok(cleanupIndex >= 0);
+  assert.ok(startIndex > cleanupIndex);
   await run;
 });
 

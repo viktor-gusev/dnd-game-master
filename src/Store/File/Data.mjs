@@ -30,6 +30,8 @@ function deriveJoinable(state) {
   return state !== "completed";
 }
 
+const RETENTION_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
+
 async function ensureDir(dir) {
   const fs = await import("node:fs/promises");
   await fs.mkdir(dir, { recursive: true });
@@ -54,8 +56,19 @@ async function writeJson(file, value) {
 }
 
 export default class Dnd_Gm_Store_File_Data {
-  constructor() {
+  constructor({ now = () => new Date() } = {}) {
     this.root = process.env.DND_GM_DATA_ROOT || `${process.cwd()}/var/data`;
+    this.now = now;
+
+    this.currentTimestamp = function () {
+      return this.now().toISOString();
+    };
+
+    this.markSessionActivity = function (session, timestamp = this.currentTimestamp()) {
+      session.updatedAt = timestamp;
+      session.lastActivityAt = timestamp;
+      return session;
+    };
 
     this.init = async function () {
       await ensureDir(this.root);
@@ -141,7 +154,8 @@ export default class Dnd_Gm_Store_File_Data {
         joinable: deriveJoinable(session.state),
         currentUserParticipant: !!currentIdentityId && participants.some((participant) => participant.identityId === currentIdentityId),
         createdAt: session.createdAt,
-        updatedAt: session.updatedAt || session.createdAt,
+        updatedAt: session.updatedAt || session.lastActivityAt || session.createdAt,
+        lastActivityAt: session.lastActivityAt || session.updatedAt || session.createdAt,
       };
     };
 
@@ -187,9 +201,9 @@ export default class Dnd_Gm_Store_File_Data {
       const sessionId = `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
       const dir = this.sessionDir(sessionId);
       await ensureDir(dir);
-      const now = new Date().toISOString();
+      const now = this.currentTimestamp();
       const normalizedTitle = String(title || "").trim() || `Session ${sessionId.slice(0, 6)}`;
-      const session = {
+      const session = this.markSessionActivity({
         id: sessionId,
         sessionId,
         title: normalizedTitle,
@@ -200,8 +214,7 @@ export default class Dnd_Gm_Store_File_Data {
         },
         createdBy: identity.id,
         createdAt: now,
-        updatedAt: now,
-      };
+      }, now);
       const participants = {
         participants: [
           {
@@ -228,37 +241,77 @@ export default class Dnd_Gm_Store_File_Data {
       }
       const alreadyParticipant = current.participants.some((participant) => participant.identityId === identity.id);
       if (!alreadyParticipant) {
+        const joinedAt = this.currentTimestamp();
         current.participants.push({
           identityId: identity.id,
           uuid: identity.id,
           nickname: identity.nickname,
           displayName: identity.nickname,
           role: "player",
-          joinedAt: new Date().toISOString(),
+          joinedAt,
         });
         await writeJson(`${current.dir}/participants.json`, { participants: current.participants });
+        this.markSessionActivity(current.session, joinedAt);
+        await writeJson(`${current.dir}/session.json`, current.session);
       }
-      current.session.updatedAt = new Date().toISOString();
-      await writeJson(`${current.dir}/session.json`, current.session);
       return this.loadSession(sessionId, identity.id);
     };
 
     this.appendMessage = async function (sessionId, message) {
       const fs = await import("node:fs/promises");
-      const dir = this.sessionDir(sessionId);
-      await ensureDir(dir);
+      const current = await this.readSessionFiles(sessionId);
+      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
       const line = `${JSON.stringify(message)}\n`;
-      await fs.appendFile(`${dir}/messages.ndjson`, line, "utf8");
-      const session = await readJson(`${dir}/session.json`, null);
-      if (session) {
-        session.updatedAt = message.createdAt || new Date().toISOString();
-        await writeJson(`${dir}/session.json`, session);
-      }
+      await fs.appendFile(`${current.dir}/messages.ndjson`, line, "utf8");
+      this.markSessionActivity(current.session, message.createdAt || this.currentTimestamp());
+      await writeJson(`${current.dir}/session.json`, current.session);
     };
 
     this.listMessages = async function (sessionId, currentIdentityId = "") {
       const current = await this.loadSession(sessionId, currentIdentityId);
       return current ? current.messages : null;
+    };
+
+    this.deleteSession = async function (sessionId) {
+      const fs = await import("node:fs/promises");
+      const dir = this.sessionDir(sessionId);
+      const current = await this.readSessionFiles(sessionId);
+      if (!current) return false;
+      await fs.rm(dir, { recursive: true, force: true });
+      return true;
+    };
+
+    this.cleanupExpiredSessions = async function () {
+      const fs = await import("node:fs/promises");
+      await this.init();
+      const sessionsRoot = `${this.root}/sessions`;
+      const entries = await fs.readdir(sessionsRoot, { withFileTypes: true }).catch((error) => {
+        if (error?.code === "ENOENT") return [];
+        throw error;
+      });
+      const removedSessionIds = [];
+      const nowMs = this.now().getTime();
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const dir = `${sessionsRoot}/${entry.name}`;
+        let shouldDelete = false;
+
+        try {
+          const session = await readJson(`${dir}/session.json`, null);
+          const lastActivityAt = session?.lastActivityAt;
+          const lastActivityMs = typeof lastActivityAt === "string" ? Date.parse(lastActivityAt) : Number.NaN;
+          shouldDelete = !session || !Number.isFinite(lastActivityMs) || (nowMs - lastActivityMs > RETENTION_WINDOW_MS);
+        } catch {
+          shouldDelete = true;
+        }
+
+        if (!shouldDelete) continue;
+        await fs.rm(dir, { recursive: true, force: true });
+        removedSessionIds.push(entry.name);
+      }
+
+      return removedSessionIds;
     };
   }
 }

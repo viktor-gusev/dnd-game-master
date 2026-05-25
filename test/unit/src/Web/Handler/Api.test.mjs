@@ -60,6 +60,7 @@ function makeDataStore() {
         title: title || "Session session",
         state: "lobby",
         gm: { uuid: identity.id, nickname: identity.nickname },
+        lastActivityAt: "2026-05-17T00:00:00.000Z",
       };
       const current = {
         session: {
@@ -98,6 +99,9 @@ function makeDataStore() {
     },
     async appendMessage(sessionId, message) {
       this.sessions.get(sessionId)?.messages.push(message);
+    },
+    async deleteSession(sessionId) {
+      return this.sessions.delete(sessionId);
     },
   };
 }
@@ -181,7 +185,7 @@ test("GET /api/sessions returns summary data only", async () => {
   assert.equal(/"messages"/.test(context.response.body), false);
 });
 
-test("unsupported DELETE /api/sessions/:sessionId does not delete session data", async () => {
+test("DELETE /api/sessions/:sessionId lets the Game Master delete the session", async () => {
   const dataStore = makeDataStore();
   const identity = await dataStore.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
   await dataStore.createSession(identity, { title: "Friday tavern run" });
@@ -193,7 +197,27 @@ test("unsupported DELETE /api/sessions/:sessionId does not delete session data",
 
   await handler.handle(context);
 
-  assert.equal([404, 405].includes(context.response.statusCode), true);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"deleted":true/);
+  assert.equal(dataStore.sessions.has("session_1"), false);
+});
+
+test("DELETE /api/sessions/:sessionId rejects non-Game-Master deletion", async () => {
+  const dataStore = makeDataStore();
+  const alice = await dataStore.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await dataStore.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  await dataStore.createSession(alice, { title: "Friday tavern run" });
+  await dataStore.joinSession("session_1", bob);
+  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "DELETE";
+  context.request.url = "http://localhost/api/sessions/session_1";
+  context.request.headers["x-local-identity-id"] = bob.id;
+
+  await handler.handle(context);
+
+  assert.equal(context.response.statusCode, 403);
+  assert.match(context.response.body, /"forbidden"/);
   assert.equal(dataStore.sessions.has("session_1"), true);
 });
 
