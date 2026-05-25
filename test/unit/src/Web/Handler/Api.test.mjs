@@ -170,9 +170,31 @@ test("GET /api/sessions returns summary data only", async () => {
   await handler.handle(context);
 
   assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"sessionId":"session_1"/);
   assert.match(context.response.body, /"title":"Friday tavern run"/);
+  assert.match(context.response.body, /"state":"lobby"/);
+  assert.match(context.response.body, /"gm":\{"uuid":"4d8b6f10-4a8b-48f4-b38c-d5128972e289","nickname":"Alice"\}/);
   assert.match(context.response.body, /"participantCount":1/);
+  assert.match(context.response.body, /"joinable":true/);
+  assert.match(context.response.body, /"currentUserParticipant":true/);
+  assert.equal(/"participants"/.test(context.response.body), false);
   assert.equal(/"messages"/.test(context.response.body), false);
+});
+
+test("unsupported DELETE /api/sessions/:sessionId does not delete session data", async () => {
+  const dataStore = makeDataStore();
+  const identity = await dataStore.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  await dataStore.createSession(identity, { title: "Friday tavern run" });
+  const handler = new ApiHandler({ dataStore, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "DELETE";
+  context.request.url = "http://localhost/api/sessions/session_1";
+  context.request.headers["x-local-identity-id"] = identity.id;
+
+  await handler.handle(context);
+
+  assert.equal([404, 405].includes(context.response.statusCode), true);
+  assert.equal(dataStore.sessions.has("session_1"), true);
 });
 
 test("POST /api/event-delivery/token sends only clientInstanceId to the runtime and disables caching", async () => {

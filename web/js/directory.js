@@ -1,6 +1,6 @@
 import { createApiClient } from "./api/client.js";
 import { mountDeveloperDiagnosticsPanel } from "./diagnostics.js";
-import { ensureLocalIdentity, loadLocalState, saveLocalIdentity, saveSessionId } from "./state/local-state.js";
+import { ensureLocalIdentity, saveLocalIdentity, saveSessionId } from "./state/local-state.js";
 
 function el(id, doc = document) {
   return doc.getElementById(id);
@@ -14,10 +14,155 @@ function navigateToSession(sessionId, locationApi = globalThis.location) {
   }
 }
 
-function renderSessions(sessions, state, { document: doc, onOpen, onJoin }) {
+function createActionButton(doc, { label, disabled = false, onClick }) {
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.disabled = disabled;
+  if (typeof onClick === "function") {
+    button.addEventListener("click", async (event) => {
+      event?.stopPropagation?.();
+      await onClick(event);
+    });
+  }
+  return button;
+}
+
+function appendTextFragment(doc, container, text, className = "") {
+  const fragment = doc.createElement("span");
+  fragment.textContent = text;
+  if (className) fragment.className = className;
+  container.appendChild(fragment);
+  return fragment;
+}
+
+function getSessionTitle(session) {
+  return session.title || session.name || session.sessionId;
+}
+
+function getSessionGmNickname(session) {
+  return session.gm?.nickname || "unknown";
+}
+
+function getJoinableLabel(session) {
+  return session.joinable ? "Joinable" : "Non-joinable";
+}
+
+function getParticipationLabel(session) {
+  return session.currentUserParticipant ? "You are in this session" : "Not joined";
+}
+
+function getPrimaryActionLabel(session) {
+  if (session.currentUserParticipant) return "Open workspace";
+  if (session.joinable) return "Join session";
+  return "Unavailable";
+}
+
+function setDirectorySummary(sessions, doc) {
+  const summary = el("sessionDirectorySummary", doc);
+  if (!summary) return;
+  const count = sessions.length;
+  summary.textContent = `${count} session${count === 1 ? "" : "s"} listed.`;
+}
+
+function createSessionSummary(session, doc) {
+  const summary = doc.createElement("div");
+  summary.className = "session-summary";
+  summary.setAttribute("data-role", "session-summary");
+
+  appendTextFragment(doc, summary, getSessionTitle(session), "session-summary-title");
+  appendTextFragment(doc, summary, session.state, "session-state");
+  appendTextFragment(doc, summary, `GM ${getSessionGmNickname(session)}`, "session-summary-meta");
+  appendTextFragment(doc, summary, `${session.participantCount} participant${session.participantCount === 1 ? "" : "s"}`, "session-summary-meta");
+  appendTextFragment(doc, summary, session.currentUserParticipant ? "Member" : "Not joined", "session-summary-flag");
+  appendTextFragment(doc, summary, getJoinableLabel(session), "session-summary-flag");
+
+  return summary;
+}
+
+function renderSelectedSessionDetail(selectedSession, { document: doc, onOpen, onJoin, onDeleteStub }) {
+  const container = el("selectedSessionDetail", doc);
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (!selectedSession) return;
+
+  const card = doc.createElement("article");
+  card.className = "session-card";
+  card.setAttribute("data-role", "selected-session-card");
+
+  const eyebrow = doc.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = "Selected session";
+
+  const title = doc.createElement("h3");
+  title.textContent = getSessionTitle(selectedSession);
+
+  const idLine = doc.createElement("p");
+  idLine.textContent = `Session ID: ${selectedSession.sessionId}`;
+
+  const stateLine = doc.createElement("p");
+  stateLine.textContent = `Lifecycle state: ${selectedSession.state}`;
+
+  const gmLine = doc.createElement("p");
+  gmLine.textContent = `Game Master: ${getSessionGmNickname(selectedSession)}`;
+
+  const participantLine = doc.createElement("p");
+  participantLine.textContent = `Participants: ${selectedSession.participantCount}`;
+
+  const participationLine = doc.createElement("p");
+  participationLine.textContent = `Participation: ${getParticipationLabel(selectedSession)}`;
+
+  const joinableLine = doc.createElement("p");
+  joinableLine.textContent = `Joinable status: ${getJoinableLabel(selectedSession)}`;
+
+  const actions = doc.createElement("div");
+  actions.className = "session-actions";
+  actions.appendChild(createActionButton(doc, {
+    label: getPrimaryActionLabel(selectedSession),
+    disabled: !selectedSession.currentUserParticipant && !selectedSession.joinable,
+    onClick() {
+      if (selectedSession.currentUserParticipant) return onOpen(selectedSession.sessionId);
+      return onJoin(selectedSession.sessionId);
+    },
+  }));
+
+  const deleteButton = createActionButton(doc, {
+    label: "Delete Session",
+    disabled: true,
+    onClick() {
+      if (typeof onDeleteStub === "function") onDeleteStub(selectedSession.sessionId);
+    },
+  });
+  deleteButton.setAttribute("aria-disabled", "true");
+
+  const deleteHint = doc.createElement("p");
+  deleteHint.textContent = "Session deletion is not implemented yet.";
+
+  actions.appendChild(deleteButton);
+  card.appendChild(eyebrow);
+  card.appendChild(title);
+  card.appendChild(idLine);
+  card.appendChild(stateLine);
+  card.appendChild(gmLine);
+  card.appendChild(participantLine);
+  card.appendChild(participationLine);
+  card.appendChild(joinableLine);
+  card.appendChild(actions);
+  card.appendChild(deleteHint);
+  container.appendChild(card);
+}
+
+function renderSessions(sessions, selectedSessionId, {
+  document: doc,
+  onSelect,
+  onOpen,
+  onJoin,
+}) {
   const container = el("sessionDirectory", doc);
   if (!container) return;
   container.innerHTML = "";
+  setDirectorySummary(sessions, doc);
 
   if (!sessions.length) {
     const empty = doc.createElement("p");
@@ -28,51 +173,31 @@ function renderSessions(sessions, state, { document: doc, onOpen, onJoin }) {
   }
 
   for (const session of sessions) {
-    const card = doc.createElement("article");
-    card.className = "session-card";
-
-    const header = doc.createElement("div");
-    header.className = "session-card-header";
-
-    const title = doc.createElement("h2");
-    title.textContent = session.title || session.sessionId;
-    header.appendChild(title);
-
-    const badge = doc.createElement("span");
-    badge.className = "session-state";
-    badge.textContent = session.state;
-    header.appendChild(badge);
-
-    const meta = doc.createElement("p");
-    meta.className = "session-meta";
-    meta.textContent = `GM: ${session.gm?.nickname || "Unknown"} · Participants: ${session.participantCount}`;
-
-    const flags = doc.createElement("p");
-    flags.className = "session-flags";
-    const markers = [];
-    if (session.currentUserParticipant) markers.push("You are in this session");
-    if (session.joinable) markers.push("Joinable");
-    else markers.push("Closed");
-    flags.textContent = markers.join(" · ");
+    const item = doc.createElement("article");
+    item.className = "session-list-item";
+    item.setAttribute("data-role", "session-list-item");
+    item.setAttribute("role", "button");
+    item.setAttribute("tabindex", "0");
+    item.setAttribute("aria-pressed", String(session.sessionId === selectedSessionId));
+    item.addEventListener("click", () => {
+      onSelect(session.sessionId);
+    });
 
     const actions = doc.createElement("div");
     actions.className = "session-actions";
-    const button = doc.createElement("button");
-    if (session.currentUserParticipant) {
-      button.textContent = "Open workspace";
-      button.addEventListener("click", () => onOpen(session.sessionId));
-    } else {
-      button.textContent = session.joinable ? "Join session" : "Unavailable";
-      button.disabled = !session.joinable;
-      button.addEventListener("click", () => onJoin(session.sessionId));
-    }
-    actions.appendChild(button);
+    actions.setAttribute("data-role", "session-row-action");
+    actions.appendChild(createActionButton(doc, {
+      label: getPrimaryActionLabel(session),
+      disabled: !session.currentUserParticipant && !session.joinable,
+      onClick() {
+        if (session.currentUserParticipant) return onOpen(session.sessionId);
+        return onJoin(session.sessionId);
+      },
+    }));
 
-    card.appendChild(header);
-    card.appendChild(meta);
-    card.appendChild(flags);
-    card.appendChild(actions);
-    container.appendChild(card);
+    item.appendChild(createSessionSummary(session, doc));
+    item.appendChild(actions);
+    container.appendChild(item);
   }
 }
 
@@ -88,6 +213,8 @@ export async function initializeDirectoryApp({
   await mountDeveloperDiagnosticsPanel();
 
   const state = ensureLocalIdentity(storage, cryptoApi);
+  state.sessions = [];
+  state.selectedSessionId = "";
   const api = createApiClient({
     fetchImpl,
     getIdentity() {
@@ -109,6 +236,65 @@ export async function initializeDirectoryApp({
     saveSessionId(state.sessionId, storage);
     if (uuidInput) uuidInput.value = state.uuid;
     if (nicknameInput) nicknameInput.value = state.nickname;
+  }
+
+  function findSelectedSession() {
+    return state.sessions.find((session) => session.sessionId === state.selectedSessionId) || null;
+  }
+
+  function renderDirectory() {
+    renderSessions(state.sessions, state.selectedSessionId, {
+      document: doc,
+      onSelect(sessionId) {
+        state.selectedSessionId = sessionId;
+        renderDirectory();
+      },
+      onOpen(sessionId) {
+        state.sessionId = sessionId;
+        saveSessionId(sessionId, storage);
+        navigateToSession(sessionId, locationApi);
+      },
+      async onJoin(sessionId) {
+        const joinResponse = await api(`/api/sessions/${sessionId}/join`, {
+          method: "POST",
+          operation: "join-session-from-directory",
+          body: JSON.stringify({}),
+        });
+        if (!joinResponse.ok) {
+          setStatus(joinResponse.error?.message || "Failed to join session.");
+          return;
+        }
+        state.sessionId = sessionId;
+        saveSessionId(sessionId, storage);
+        navigateToSession(sessionId, locationApi);
+      },
+    });
+
+    renderSelectedSessionDetail(findSelectedSession(), {
+      document: doc,
+      onOpen(sessionId) {
+        state.sessionId = sessionId;
+        saveSessionId(sessionId, storage);
+        navigateToSession(sessionId, locationApi);
+      },
+      async onJoin(sessionId) {
+        const joinResponse = await api(`/api/sessions/${sessionId}/join`, {
+          method: "POST",
+          operation: "join-session-from-directory",
+          body: JSON.stringify({}),
+        });
+        if (!joinResponse.ok) {
+          setStatus(joinResponse.error?.message || "Failed to join session.");
+          return;
+        }
+        state.sessionId = sessionId;
+        saveSessionId(sessionId, storage);
+        navigateToSession(sessionId, locationApi);
+      },
+      onDeleteStub() {
+        setStatus("Session deletion is not implemented yet.");
+      },
+    });
   }
 
   async function registerIdentity() {
@@ -136,28 +322,11 @@ export async function initializeDirectoryApp({
       setStatus(response.error?.message || "Failed to load sessions.");
       return;
     }
-    renderSessions(response.data.sessions || [], state, {
-      document: doc,
-      onOpen(sessionId) {
-        state.sessionId = sessionId;
-        saveSessionId(sessionId, storage);
-        navigateToSession(sessionId, locationApi);
-      },
-      async onJoin(sessionId) {
-        const joinResponse = await api(`/api/sessions/${sessionId}/join`, {
-          method: "POST",
-          operation: "join-session-from-directory",
-          body: JSON.stringify({}),
-        });
-        if (!joinResponse.ok) {
-          setStatus(joinResponse.error?.message || "Failed to join session.");
-          return;
-        }
-        state.sessionId = sessionId;
-        saveSessionId(sessionId, storage);
-        navigateToSession(sessionId, locationApi);
-      },
-    });
+    state.sessions = response.data.sessions || [];
+    if (!state.sessions.some((session) => session.sessionId === state.selectedSessionId)) {
+      state.selectedSessionId = "";
+    }
+    renderDirectory();
     setStatus("Session Directory updated.");
   }
 
@@ -203,6 +372,7 @@ export async function initializeDirectoryApp({
   }
 
   persistState();
+  renderDirectory();
   setStatus(`Identity ready: ${state.nickname}`);
   if (await registerIdentity()) {
     await refreshSessions();

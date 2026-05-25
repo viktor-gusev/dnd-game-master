@@ -70,7 +70,37 @@ function makeStorage(initial = {}) {
   };
 }
 
-test("directory entry restores local identity and renders session summaries", async () => {
+function collectText(node) {
+  if (!node) return "";
+  return [node.textContent || "", ...node.children.map((child) => collectText(child))]
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findButtonByText(node, text) {
+  if (!node) return null;
+  if (node.id === "button" && node.textContent === text) return node;
+  for (const child of node.children) {
+    const found = findButtonByText(child, text);
+    if (found) return found;
+  }
+  return null;
+}
+
+function createSessionFixture(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    sessionId: `session-${index + 1}`,
+    title: index % 3 === 0 ? `Session ${index + 1}` : "",
+    state: index % 4 === 0 ? "lobby" : "closed",
+    gm: index % 5 === 0 ? null : { uuid: `gm-${index + 1}`, nickname: `GM ${index + 1}` },
+    participantCount: (index % 6) + 1,
+    joinable: index % 4 !== 1,
+    currentUserParticipant: index % 7 === 0,
+  }));
+}
+
+test("directory renders a compact 35-session directory instead of expanded field blocks", async () => {
   const document = makeDocument();
   const storage = makeStorage({
     "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
@@ -113,17 +143,7 @@ test("directory entry restores local identity and renders session summaries", as
           return {
             ok: true,
             data: {
-              sessions: [
-                {
-                  sessionId: "session-1",
-                  title: "Friday tavern run",
-                  state: "lobby",
-                  gm: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
-                  participantCount: 1,
-                  joinable: true,
-                  currentUserParticipant: true,
-                },
-              ],
+              sessions: createSessionFixture(35),
             },
           };
         },
@@ -133,12 +153,30 @@ test("directory entry restores local identity and renders session summaries", as
 
   assert.equal(document.getElementById("identityUuid").value, "4d8b6f10-4a8b-48f4-b38c-d5128972e289");
   assert.equal(document.getElementById("identityNickname").value, "Alice");
-  assert.equal(document.getElementById("sessionDirectory").children.length, 1);
+  assert.equal(document.getElementById("sessionDirectory").children.length, 35);
+  assert.match(document.getElementById("sessionDirectorySummary").textContent, /35/i);
+  assert.match(document.getElementById("sessionDirectorySummary").textContent, /session/i);
+  assert.equal(document.getElementById("selectedSessionDetail").children.length, 0);
+  assert.equal(/Delete Session/i.test(collectText(document.getElementById("sessionDirectory"))), false);
+
+  for (const item of document.getElementById("sessionDirectory").children.slice(0, 5)) {
+    const text = collectText(item);
+    assert.equal(item.attributes["data-role"], "session-list-item");
+    assert.match(text, /session-|Session /);
+    assert.match(text, /lobby|closed/i);
+    assert.match(text, /GM /);
+    assert.match(text, /participant/i);
+    assert.match(text, /Member|Not joined/);
+    assert.match(text, /Joinable|Non-joinable/);
+    assert.match(text, /Open workspace|Join session|Unavailable/);
+    assert.equal(/State:|Participants:|You are in this session|Joinable status:/i.test(text), false);
+  }
+
   assert.equal(fetchCalls[0][0], "/api/identity/local");
   assert.equal(fetchCalls.at(-1)[0], "/api/sessions");
 });
 
-test("directory joins a listed session and navigates to the workspace", async () => {
+test("selecting a compact session item opens detail without navigating and explicit actions drive navigation", async () => {
   const document = makeDocument();
   const storage = makeStorage({
     "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289",
@@ -187,6 +225,15 @@ test("directory joins a listed session and navigates to the workspace", async ()
               data: {
                 sessions: [
                   {
+                    sessionId: "session-1",
+                    title: "Friday tavern run",
+                    state: "lobby",
+                    gm: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+                    participantCount: 1,
+                    joinable: true,
+                    currentUserParticipant: true,
+                  },
+                  {
                     sessionId: "session-2",
                     title: "Open table",
                     state: "lobby",
@@ -195,6 +242,31 @@ test("directory joins a listed session and navigates to the workspace", async ()
                     joinable: true,
                     currentUserParticipant: false,
                   },
+                ],
+              },
+            };
+          },
+        };
+      }
+      if (path === "/api/sessions/session-2") {
+        return {
+          ok: true,
+          headers: { get() { return "application/json"; } },
+          async json() {
+            return {
+              ok: true,
+              data: {
+                session: {
+                  sessionId: "session-2",
+                  title: "Open table",
+                  state: "lobby",
+                  gm: { uuid: "c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", nickname: "Bob" },
+                  participantCount: 1,
+                  joinable: true,
+                  currentUserParticipant: false,
+                },
+                participants: [
+                  { identityId: "c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", nickname: "Bob", displayName: "Bob", role: "game_master" },
                 ],
               },
             };
@@ -211,8 +283,39 @@ test("directory joins a listed session and navigates to the workspace", async ()
     },
   });
 
-  const card = document.getElementById("sessionDirectory").children[0];
-  const joinButton = card.children[3].children[0];
+  const firstItem = document.getElementById("sessionDirectory").children[0];
+  const secondItem = document.getElementById("sessionDirectory").children[1];
+  const initialStoredSessionId = storage.getItem("dnd-gm.sessionId");
+
+  await firstItem.listeners.get("click")?.();
+  assert.equal(assignedTo, "");
+  assert.equal(storage.getItem("dnd-gm.sessionId"), initialStoredSessionId);
+  assert.equal(document.getElementById("selectedSessionDetail").children.length, 1);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /Friday tavern run/);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /session-1/);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /Delete Session/i);
+  assert.equal(/Delete Session/i.test(collectText(firstItem)), false);
+
+  await secondItem.listeners.get("click")?.();
+  assert.equal(assignedTo, "");
+  assert.equal(storage.getItem("dnd-gm.sessionId"), initialStoredSessionId);
+  assert.equal(document.getElementById("selectedSessionDetail").children.length, 1);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /Open table/);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /session-2/);
+  assert.match(collectText(document.getElementById("selectedSessionDetail")), /Bob/);
+  assert.equal(/Delete Session/i.test(collectText(secondItem)), false);
+  assert.equal(/State:|Participants:|You are in this session|Joinable status:/i.test(collectText(secondItem)), false);
+
+  const deleteButton = findButtonByText(document.getElementById("selectedSessionDetail"), "Delete Session");
+  assert.ok(deleteButton);
+  if (deleteButton.disabled !== true) {
+    await deleteButton.listeners.get("click")?.();
+  }
+  assert.equal(fetchCalls.some(([path, method]) => method === "DELETE" && path === "/api/sessions/session-2"), false);
+  assert.equal(document.getElementById("sessionDirectory").children.length, 2);
+  assert.equal(storage.getItem("dnd-gm.sessionId"), initialStoredSessionId);
+
+  const joinButton = findButtonByText(document.getElementById("selectedSessionDetail"), "Join session");
   await joinButton.listeners.get("click")();
 
   assert.equal(fetchCalls.at(-1)[0], "/api/sessions/session-2/join");

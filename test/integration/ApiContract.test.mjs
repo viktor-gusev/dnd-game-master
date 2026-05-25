@@ -95,9 +95,14 @@ test("first-slice api contract and persistence flow", async () => {
     });
     json = await res.json();
     assert.equal(json.ok, true);
+    assert.equal(json.data.sessions[0].sessionId, sessionId);
     assert.equal(json.data.sessions[0].title, "Friday tavern run");
+    assert.equal(json.data.sessions[0].state, "lobby");
+    assert.equal(json.data.sessions[0].gm.nickname, "Alice");
     assert.equal(json.data.sessions[0].participantCount, 1);
+    assert.equal(json.data.sessions[0].joinable, true);
     assert.equal(json.data.sessions[0].currentUserParticipant, false);
+    assert.equal("participants" in json.data.sessions[0], false);
     assert.equal("messages" in json.data.sessions[0], false);
 
     res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/join`, {
@@ -136,6 +141,22 @@ test("first-slice api contract and persistence flow", async () => {
     json = await res.json();
     assert.equal(res.status, 400);
     assert.equal(json.error.code, "missing_identity");
+
+    res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}`, {
+      method: "DELETE",
+      headers: { "x-local-identity-id": identityId },
+    });
+    json = await res.json();
+    assert.equal([404, 405].includes(res.status), true);
+    assert.equal(json.ok, false);
+
+    res = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+      headers: { "x-local-identity-id": identityId },
+    });
+    json = await res.json();
+    assert.equal(json.ok, true);
+    assert.equal(json.data.sessions.length, 1);
+    assert.equal(json.data.sessions[0].sessionId, sessionId);
   } finally {
     child.kill("SIGTERM");
     await cleanup();
@@ -185,6 +206,14 @@ test("api returns stable errors for invalid and missing input", async () => {
     json = await res.json();
     assert.equal(res.status, 404);
     assert.equal(json.error.code, "not_found");
+
+    res = await fetch(`http://127.0.0.1:${port}/api/sessions/session_1`, {
+      method: "DELETE",
+      headers: { "x-local-identity-id": identityId },
+    });
+    json = await res.json();
+    assert.equal([404, 405].includes(res.status), true);
+    assert.equal(json.ok, false);
   } finally {
     child.kill("SIGTERM");
     await cleanup();

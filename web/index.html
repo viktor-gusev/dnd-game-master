@@ -15,6 +15,19 @@
         <p id="status">Preparing browser-local identity.</p>
       </header>
 
+      <section class="panel">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Available sessions</p>
+            <h2>Session Directory</h2>
+            <p id="sessionDirectorySummary">Loading sessions.</p>
+          </div>
+          <button id="refreshSessions" type="button">Refresh list</button>
+        </div>
+        <div id="sessionDirectory" class="session-directory"></div>
+        <div id="selectedSessionDetail" class="session-detail"></div>
+      </section>
+
       <section class="panel two-column-layout">
         <form id="identityForm" class="card-form">
           <h2>Local Identity</h2>
@@ -31,17 +44,6 @@
           <input id="sessionTitle" name="sessionTitle" placeholder="Friday tavern run">
           <button type="submit">Create and open workspace</button>
         </form>
-      </section>
-
-      <section class="panel">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Available sessions</p>
-            <h2>Session Directory</h2>
-          </div>
-          <button id="refreshSessions" type="button">Refresh list</button>
-        </div>
-        <div id="sessionDirectory" class="session-directory"></div>
       </section>
     </main>
     <script type="module" src="/js/directory.js"></script>
