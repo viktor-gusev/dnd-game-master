@@ -2,114 +2,32 @@
 
 /**
  * @namespace Dnd_Gm_Service_EventDelivery_Runtime
- * @description Issues stream tokens and manages active SSE transport channels.
+ * @description Manages runtime-only tab-level SSE connections and hint delivery.
  */
 
-const DEFAULT_TOKEN_TTL_MS = 30_000;
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 1_000;
-const CLIENT_INSTANCE_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
-
-function nowIso(date = new Date()) {
-  return date.toISOString();
+function nowIso() {
+  return new Date().toISOString();
 }
 
-async function createOpaqueToken() {
-  const crypto = await import("node:crypto");
-  return crypto.randomBytes(24).toString("base64url");
+function writeEvent(response, payload) {
+  response.write(`event: notification\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-function parsePositiveInt(value, fallback) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function makeEnvelope(kind, name, clientInstanceId, payload = {}) {
-  return JSON.stringify({
-    kind,
-    name,
-    clientInstanceId,
-    emittedAt: nowIso(),
-    payload,
-  });
-}
-
-function emitSse(response, kind, name, clientInstanceId, payload = {}) {
-  response.write(`event: ${name}\n`);
-  response.write(`data: ${makeEnvelope(kind, name, clientInstanceId, payload)}\n\n`);
-}
-
-function makeLogContext({ clientInstanceId, principalRef, expiresAt } = {}) {
-  const parts = [];
-  if (clientInstanceId) parts.push(`clientInstanceId=${clientInstanceId}`);
-  if (principalRef) parts.push(`principalRef=${principalRef}`);
-  if (expiresAt) parts.push(`expiresAt=${expiresAt}`);
-  return parts.join(" ");
+function buildPayload({ type, scope, resourceKind, occurredAt = nowIso(), campaignId, resourceId, campaignEventId, version }) {
+  const payload = { type, scope, resourceKind, occurredAt };
+  if (campaignId) payload.campaignId = campaignId;
+  if (resourceId) payload.resourceId = resourceId;
+  if (campaignEventId) payload.campaignEventId = campaignEventId;
+  if (version) payload.version = version;
+  return payload;
 }
 
 export default class Dnd_Gm_Service_EventDelivery_Runtime {
-  constructor({ principalResolver, channelRegistry }) {
-    if (!principalResolver || typeof principalResolver.resolvePrincipalRef !== "function") {
-      throw new Error("Event Delivery principal resolver is required.");
-    }
+  constructor({ channelRegistry }) {
+    this.channelRegistry = channelRegistry;
 
-    const tokenTtlMs = parsePositiveInt(process.env.DND_GM_EVENT_DELIVERY_TOKEN_TTL_MS, DEFAULT_TOKEN_TTL_MS);
-    const heartbeatIntervalMs = parsePositiveInt(process.env.DND_GM_EVENT_DELIVERY_HEARTBEAT_MS, DEFAULT_HEARTBEAT_INTERVAL_MS);
-
-    this.validateClientInstanceId = function (clientInstanceId) {
-      if (typeof clientInstanceId !== "string" || !CLIENT_INSTANCE_ID_RE.test(clientInstanceId)) {
-        throw Object.assign(new Error("Invalid client instance id."), { code: "invalid_client_instance_id" });
-      }
-      return clientInstanceId;
-    };
-
-    this.issueToken = async function ({ clientInstanceId, requestContext }) {
-      const validatedClientInstanceId = this.validateClientInstanceId(clientInstanceId);
-      const principalRef = await principalResolver.resolvePrincipalRef(requestContext);
-      if (typeof principalRef !== "string" || !principalRef.trim()) {
-        throw Object.assign(new Error("Unable to resolve principal ref."), { code: "principal_unresolved" });
-      }
-      const streamToken = await createOpaqueToken();
-      const expiresAt = new Date(Date.now() + tokenTtlMs).toISOString();
-      channelRegistry.saveToken({ token: streamToken, clientInstanceId: validatedClientInstanceId, principalRef, expiresAt });
-      console.info(`[event-delivery] issued stream token ${makeLogContext({ clientInstanceId: validatedClientInstanceId, principalRef, expiresAt })}`);
-      return { streamToken, expiresAt, clientInstanceId: validatedClientInstanceId, principalRef };
-    };
-
-    this.validateToken = function (streamToken) {
-      if (typeof streamToken !== "string" || !streamToken.trim()) {
-        throw Object.assign(new Error("Missing stream token."), { code: "missing_token" });
-      }
-      const tokenRecord = channelRegistry.readToken(streamToken);
-      if (!tokenRecord) throw Object.assign(new Error("Invalid stream token."), { code: "invalid_token" });
-      if (Date.parse(tokenRecord.expiresAt) <= Date.now()) {
-        channelRegistry.deleteToken(streamToken);
-        throw Object.assign(new Error("Expired stream token."), { code: "expired_token" });
-      }
-      return tokenRecord;
-    };
-
-    this.openStream = function ({ streamToken, request, response }) {
-      const tokenRecord = this.validateToken(streamToken);
-      const { clientInstanceId, principalRef } = tokenRecord;
-
-      /** @type {NodeJS.Timeout|undefined} */
-      let heartbeatTimer;
-      /** @type {(() => void)|undefined} */
-      let cleanup;
-
-      const handle = {
-        key: `${clientInstanceId}::${principalRef}`,
-        clientInstanceId,
-        principalRef,
-        response,
-        close: () => {
-          if (cleanup) cleanup();
-          if (!response.writableEnded) response.end();
-        },
-      };
-
-      const previous = channelRegistry.activateChannel({ clientInstanceId, principalRef, handle });
-
+    this.openStream = function ({ tabIdentityId, localIdentityId, campaignId = "", request, response }) {
       response.statusCode = 200;
       response.setHeader("content-type", "text/event-stream; charset=utf-8");
       response.setHeader("cache-control", "no-store");
@@ -117,60 +35,59 @@ export default class Dnd_Gm_Service_EventDelivery_Runtime {
       response.setHeader("x-accel-buffering", "no");
       if (typeof response.flushHeaders === "function") response.flushHeaders();
 
-      cleanup = () => {
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        heartbeatTimer = undefined;
-        channelRegistry.releaseChannel(handle);
-        console.info(`[event-delivery] closed stream ${makeLogContext({ clientInstanceId, principalRef })}`);
+      const previous = channelRegistry.put({ tabIdentityId, localIdentityId, campaignId, response });
+      const cleanup = () => {
+        channelRegistry.delete(tabIdentityId);
         if (typeof request.off === "function") request.off("close", cleanup);
         if (typeof response.off === "function") {
           response.off("close", cleanup);
           response.off("error", cleanup);
         }
-        cleanup = undefined;
       };
-
       if (typeof request.on === "function") request.on("close", cleanup);
       if (typeof response.on === "function") {
         response.on("close", cleanup);
         response.on("error", cleanup);
       }
-
-      if (previous && previous !== handle) {
-        console.info(`[event-delivery] superseded previous stream ${makeLogContext({ clientInstanceId, principalRef })}`);
-        previous.close();
-      }
-
-      console.info(`[event-delivery] opened stream ${makeLogContext({ clientInstanceId, principalRef })}`);
-
-      emitSse(response, "control", "delivery.connected", clientInstanceId, {});
-      heartbeatTimer = setInterval(() => {
-        if (response.writableEnded) return;
-        emitSse(response, "control", "delivery.heartbeat", clientInstanceId, {});
-      }, heartbeatIntervalMs);
-
-      return { clientInstanceId, principalRef };
+      if (previous && previous.response && !previous.response.writableEnded) previous.response.end();
+      writeEvent(response, { type: "delivery.connected", scope: "user", resourceKind: "identity", occurredAt: nowIso() });
+      return channelRegistry.get(tabIdentityId);
     };
 
-    this.emitExtensionFrame = function ({ name, principalRefs, payload = {} }) {
-      if (typeof name !== "string" || !name.trim()) {
-        throw Object.assign(new Error("Extension frame name is required."), { code: "invalid_input" });
-      }
+    this.rebindContext = function ({ tabIdentityId, campaignId = "", localIdentityId }) {
+      const entry = channelRegistry.get(tabIdentityId);
+      if (!entry) return null;
+      if (entry.localIdentityId !== localIdentityId) throw Object.assign(new Error("Local identity mismatch."), { code: "forbidden" });
+      entry.campaignId = campaignId || "";
+      return entry;
+    };
 
+    this.notifyUser = function ({ localIdentityId, type, resourceKind, resourceId = "", campaignEventId = "", version = "", occurredAt = nowIso() }) {
       const delivered = [];
-      const seenHandles = new Set();
-      for (const principalRef of new Set(principalRefs || [])) {
-        for (const handle of channelRegistry.listActiveChannelsByPrincipal(principalRef)) {
-          if (!handle || seenHandles.has(handle)) continue;
-          seenHandles.add(handle);
-          if (handle.response?.writableEnded) continue;
-          try {
-            emitSse(handle.response, "extension", name, handle.clientInstanceId, payload);
-            delivered.push({ principalRef: handle.principalRef, clientInstanceId: handle.clientInstanceId });
-          } catch (error) {
-            console.warn(`[event-delivery] failed to emit extension frame ${name} ${makeLogContext({ clientInstanceId: handle.clientInstanceId, principalRef: handle.principalRef })}`, error?.message || error);
-          }
-        }
+      for (const entry of channelRegistry.listByLocalIdentity(localIdentityId)) {
+        if (!entry.response || entry.response.writableEnded) continue;
+        writeEvent(entry.response, buildPayload({ type, scope: "user", resourceKind, resourceId, campaignEventId, version, occurredAt }));
+        delivered.push(entry.tabIdentityId);
+      }
+      return delivered;
+    };
+
+    this.notifyCampaign = function ({ campaignId, localIdentityIds = [], type, resourceKind, resourceId = "", campaignEventId = "", version = "", occurredAt = nowIso() }) {
+      const delivered = [];
+      for (const entry of channelRegistry.list()) {
+        if (!entry.campaignId || entry.campaignId !== campaignId) continue;
+        if (!localIdentityIds.includes(entry.localIdentityId)) continue;
+        if (!entry.response || entry.response.writableEnded) continue;
+        writeEvent(entry.response, buildPayload({ type, scope: "campaign", campaignId, resourceKind, resourceId, campaignEventId, version, occurredAt }));
+        delivered.push(entry.tabIdentityId);
+      }
+      return delivered;
+    };
+
+    this.notifyCampaignDeletion = function ({ campaignId, localIdentityIds = [], occurredAt = nowIso() }) {
+      const delivered = [];
+      for (const localIdentityId of new Set(localIdentityIds)) {
+        delivered.push(...this.notifyUser({ localIdentityId, type: "user.campaign-list.changed", resourceKind: "campaign-list", resourceId: campaignId, occurredAt }));
       }
       return delivered;
     };
@@ -178,6 +95,5 @@ export default class Dnd_Gm_Service_EventDelivery_Runtime {
 }
 
 export const __deps__ = Object.freeze({
-  principalResolver: "Dnd_Gm_Service_EventDelivery_PrincipalResolver$",
   channelRegistry: "Dnd_Gm_Store_Memory_EventDelivery_ChannelRegistry$",
 });

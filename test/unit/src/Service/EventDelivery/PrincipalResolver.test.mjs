@@ -37,5 +37,6 @@ test("principal resolver is registered in DI", async () => {
   const runtime = await container.get("Dnd_Gm_Service_EventDelivery_Runtime$");
 
   assert.equal(typeof resolver.resolvePrincipalRef, "function");
-  assert.equal(typeof runtime.issueToken, "function");
+  assert.equal(typeof runtime.openStream, "function");
+  assert.equal(typeof runtime.notifyUser, "function");
 });

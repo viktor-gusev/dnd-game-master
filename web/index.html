@@ -6,16 +6,28 @@
     <title>DND Game Master</title>
     <link rel="stylesheet" href="/css/app.css">
   </head>
-  <body>
-    <main>
-      <header class="hero panel">
-        <p class="eyebrow">Campaign Directory</p>
-        <h1>DND Game Master</h1>
-        <p>Open a campaign workspace after choosing or creating a campaign.</p>
-        <p id="status">Preparing browser-local identity.</p>
+  <body class="directory-page">
+    <main class="page-shell directory-shell">
+      <header class="hero panel hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Campaign Directory</p>
+          <h1>DND Game Master</h1>
+          <p>Choose a campaign, inspect the selected detail, and open the workspace when you are ready.</p>
+          <p id="status" class="status-line">Preparing browser-local identity.</p>
+        </div>
+        <div class="hero-aside">
+          <div class="stat-card">
+            <span class="stat-label">Primary flow</span>
+            <strong>List, inspect, open</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Secondary flow</span>
+            <strong>Identity, create, refresh</strong>
+          </div>
+        </div>
       </header>
 
-      <section class="panel">
+      <section class="panel directory-main">
         <div class="section-header">
           <div>
             <p class="eyebrow">Available campaigns</p>
@@ -28,9 +40,10 @@
         <div id="selectedCampaignDetail" class="campaign-detail"></div>
       </section>
 
-      <section class="panel two-column-layout">
-        <form id="identityForm" class="card-form">
-          <h2>Local Identity</h2>
+      <section class="directory-rail two-column-layout">
+        <form id="identityForm" class="card-form surface-card">
+          <p class="eyebrow">Local Identity</p>
+          <h2>Identity</h2>
           <label for="identityUuid">UUID</label>
           <input id="identityUuid" name="identityUuid" autocomplete="off" spellcheck="false" required>
           <label for="identityNickname">Nickname</label>
@@ -38,8 +51,9 @@
           <button type="submit">Save identity</button>
         </form>
 
-        <form id="createCampaignForm" class="card-form">
-          <h2>Create Campaign</h2>
+        <form id="createCampaignForm" class="card-form surface-card">
+          <p class="eyebrow">Create Campaign</p>
+          <h2>New campaign</h2>
           <label for="campaignTitle">Campaign title</label>
           <input id="campaignTitle" name="campaignTitle" placeholder="Friday tavern run">
           <button type="submit">Create and open workspace</button>

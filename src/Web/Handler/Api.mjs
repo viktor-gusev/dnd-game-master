@@ -49,14 +49,12 @@ async function readBody(req) {
 
 function logEventDeliveryFailure(req, err) {
   const url = new URL(req.url, "http://localhost");
-  const tokenHint = url.pathname === "/api/event-delivery/stream" ? (url.searchParams.get("token") ? "present" : "missing") : undefined;
   const details = [
     `method=${req.method || "GET"}`,
     `path=${url.pathname}`,
     `errorCode=${err?.code || "internal_error"}`,
   ];
   if (req.headers?.["x-local-identity-id"]) details.push(`identityId=${req.headers["x-local-identity-id"]}`);
-  if (tokenHint) details.push(`token=${tokenHint}`);
   console.warn(`[event-delivery] request failed ${details.join(" ")}`, err?.message ? `message=${err.message}` : "");
 }
 
@@ -136,7 +134,7 @@ export default class Dnd_Gm_Web_Handler_Api {
       if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
       ensureParticipant(current, identity.id);
       complete(context);
-      json(res, 200, success({ campaign: campaignFrom(current), participants: current.participants, materials: current.materials, assets: current.assets, characterSheets: current.characterSheets, aiDrafts: current.aiDrafts, credits: current.credits }));
+      json(res, 200, success({ campaign: campaignFrom(current), brief: current.brief, participants: current.participants, materials: current.materials, assets: current.assets, characterSheets: current.characterSheets, aiDrafts: current.aiDrafts, events: current.events, credits: current.credits }));
     };
 
     this.patchCampaign = async (campaignId, req, res, context) => {
@@ -169,6 +167,7 @@ export default class Dnd_Gm_Web_Handler_Api {
       }
       const deleted = await this.dataStore.deleteCampaign(campaignId);
       if (!deleted) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      this.eventDelivery?.notifyCampaignDeletion?.({ campaignId, localIdentityIds: current.participants.map((participant) => participant.identityId) });
       complete(context);
       json(res, 200, success({ campaignId, deleted: true }));
     };
@@ -322,29 +321,32 @@ export default class Dnd_Gm_Web_Handler_Api {
       json(res, 200, success({ aiDraft: rejected }));
     };
 
-    this.postEventDeliveryToken = async (req, res, context) => {
-      res.setHeader("cache-control", "no-store");
-      res.setHeader("pragma", "no-cache");
-      const body = await readBody(req);
-      if ("principalRef" in body) throw Object.assign(new Error("principalRef is not accepted."), { code: "invalid_input" });
-      const token = await this.eventDelivery.issueToken({
-        clientInstanceId: body.clientInstanceId,
-        requestContext: context,
-      });
-      complete(context);
-      jsonNoStore(res, 200, success({ streamToken: token.streamToken, expiresAt: token.expiresAt }));
-    };
-
     this.getEventDeliveryStream = async (req, res, context) => {
       res.setHeader("cache-control", "no-store");
       res.setHeader("pragma", "no-cache");
       const url = new URL(req.url, "http://localhost");
+      const tabIdentityId = url.searchParams.get("tabIdentityId");
+      const localIdentityId = url.searchParams.get("localIdentityId");
+      if (!tabIdentityId) throw Object.assign(new Error("tabIdentityId is required."), { code: "invalid_input" });
+      if (!localIdentityId) throw Object.assign(new Error("localIdentityId is required."), { code: "invalid_input" });
       this.eventDelivery.openStream({
-        streamToken: url.searchParams.get("token"),
+        tabIdentityId,
+        localIdentityId,
+        campaignId: url.searchParams.get("campaignId") || "",
         request: req,
         response: res,
       });
       complete(context);
+    };
+
+    this.postEventDeliveryContext = async (req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      if (typeof body.tabIdentityId !== "string" || !body.tabIdentityId.trim()) throw Object.assign(new Error("tabIdentityId is required."), { code: "invalid_input" });
+      if ("localIdentityId" in body) throw Object.assign(new Error("localIdentityId is not accepted."), { code: "invalid_input" });
+      const entry = this.eventDelivery.rebindContext({ tabIdentityId: body.tabIdentityId, campaignId: body.campaignId ?? "", localIdentityId: identity.id });
+      complete(context);
+      jsonNoStore(res, 200, success({ tabIdentityId: body.tabIdentityId, campaignId: entry?.campaignId || "" }));
     };
 
     this.handle = async (context) => {
@@ -355,8 +357,8 @@ export default class Dnd_Gm_Web_Handler_Api {
       try {
         if (url.pathname === "/api/identity/local" && method === "POST") return await this.postLocalIdentity(req, res, context);
         if (url.pathname === "/api/identity/current" && method === "GET") return await this.getCurrentIdentity(req, res, context);
-        if (url.pathname === "/api/event-delivery/token" && method === "POST") return await this.postEventDeliveryToken(req, res, context);
-        if (url.pathname === "/api/event-delivery/stream" && method === "GET") return await this.getEventDeliveryStream(req, res, context);
+        if (url.pathname === "/api/event-delivery" && method === "GET") return await this.getEventDeliveryStream(req, res, context);
+        if (url.pathname === "/api/event-delivery/context" && method === "POST") return await this.postEventDeliveryContext(req, res, context);
 
         if (url.pathname === "/api/campaigns" && method === "GET") return await this.listCampaigns(req, res, context);
         if (url.pathname === "/api/campaigns" && method === "POST") return await this.createCampaign(req, res, context);
@@ -411,13 +413,13 @@ export default class Dnd_Gm_Web_Handler_Api {
         if (err?.code === "unknown_character_sheet") return json(res, 404, error("unknown_character_sheet", "Unknown character sheet id."));
         if (err?.code === "unknown_ai_draft") return json(res, 404, error("unknown_ai_draft", "Unknown AI draft id."));
         if (err?.code === "invalid_client_instance_id") return json(res, 400, error("invalid_client_instance_id", "Invalid client instance id."));
-        if (err?.code === "principal_unresolved") return json(res, 400, error("principal_unresolved", "Unable to resolve principal ref."));
-        if (err?.code === "missing_token") return json(res, 400, error("missing_token", "Missing stream token."));
-        if (err?.code === "invalid_token") return json(res, 401, error("invalid_token", "Invalid stream token."));
-        if (err?.code === "expired_token") return json(res, 401, error("expired_token", "Expired stream token."));
-        if (err?.code === "security_conflict") return json(res, 409, error("security_conflict", "Client instance is already bound to another principal."));
         return json(res, 500, error("internal_error", "Internal server error."));
       }
     };
   }
 }
+
+export const __deps__ = Object.freeze({
+  dataStore: "Dnd_Gm_Store_File_Data$",
+  eventDelivery: "Dnd_Gm_Service_EventDelivery_Runtime$",
+});

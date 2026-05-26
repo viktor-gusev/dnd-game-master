@@ -6,62 +6,90 @@
     <title>Campaign Workspace · DND Game Master</title>
     <link rel="stylesheet" href="/css/app.css">
   </head>
-  <body>
-    <main id="workspaceShell">
-      <header class="hero panel">
-        <p class="eyebrow">Campaign Workspace</p>
-        <h1 id="campaignTitle">Loading campaign…</h1>
-        <p id="campaignSubtitle">Opening selected campaign.</p>
-        <p id="status">Preparing workspace.</p>
-        <p><a id="backToDirectory" href="/">Back to Campaign Directory</a></p>
+  <body class="workspace-page">
+    <main id="workspaceShell" class="page-shell workspace-shell">
+      <header class="hero panel hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Campaign Workspace</p>
+          <h1 id="campaignTitle">Loading campaign…</h1>
+          <p id="campaignSubtitle">Opening selected campaign.</p>
+          <p id="status" class="status-line">Preparing workspace.</p>
+          <p><a id="backToDirectory" href="/">Back to Campaign Directory</a></p>
+        </div>
+        <div class="hero-aside">
+          <div class="stat-card">
+            <span class="stat-label">Working set</span>
+            <strong>Brief, sheets, drafts</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Reference</span>
+            <strong>Events and credits</strong>
+          </div>
+        </div>
       </header>
 
-      <section class="panel">
-        <h2>Brief</h2>
-        <form id="briefForm" class="card-form">
-          <input name="title" placeholder="Campaign title">
-          <textarea name="summary" placeholder="Brief summary"></textarea>
-          <textarea name="planning" placeholder="Planning"></textarea>
-          <textarea name="recap" placeholder="Recap"></textarea>
-          <button type="submit">Save brief</button>
-        </form>
-        <pre id="brief"></pre>
-      </section>
+      <section class="workspace-grid">
+        <section class="panel workspace-primary">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Campaign Brief</p>
+              <h2>Brief</h2>
+            </div>
+          </div>
+          <form id="briefForm" class="card-form surface-card">
+            <input name="title" placeholder="Campaign title">
+            <textarea name="summary" placeholder="Brief summary"></textarea>
+            <textarea name="planning" placeholder="Planning"></textarea>
+            <textarea name="recap" placeholder="Recap"></textarea>
+            <button type="submit">Save brief</button>
+          </form>
+          <pre id="brief" class="data-panel"></pre>
+        </section>
 
-      <section class="panel">
-        <h2>Character Sheets</h2>
-        <form id="sheetForm" class="card-form">
-          <input name="title" placeholder="Character sheet title">
-          <textarea name="content" placeholder="Character sheet content"></textarea>
-          <button type="submit">Create sheet</button>
-        </form>
-      </section>
+        <aside class="workspace-sidebar">
+          <section class="panel">
+            <p class="eyebrow">Character Sheets</p>
+            <h2>Sheets</h2>
+            <form id="sheetForm" class="card-form surface-card">
+              <input name="title" placeholder="Character sheet title">
+              <textarea name="content" placeholder="Character sheet content"></textarea>
+              <button type="submit">Create sheet</button>
+            </form>
+          </section>
 
-      <section class="panel">
-        <h2>AI Drafts</h2>
-        <form id="draftForm" class="card-form">
-          <input name="title" placeholder="Draft title">
-          <textarea name="content" placeholder="Draft content"></textarea>
-          <button type="submit">Create draft</button>
-        </form>
-      </section>
+          <section class="panel">
+            <p class="eyebrow">AI Drafts</p>
+            <h2>Drafts</h2>
+            <form id="draftForm" class="card-form surface-card">
+              <input name="title" placeholder="Draft title">
+              <textarea name="content" placeholder="Draft content"></textarea>
+              <button type="submit">Create draft</button>
+            </form>
+          </section>
 
-      <section class="panel">
-        <div class="section-header">
-          <h2>Event Feed</h2>
-          <button id="refreshButton" type="button">Refresh</button>
-        </div>
-        <pre id="events"></pre>
-      </section>
+          <section class="panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Event Feed</p>
+                <h2>Events</h2>
+              </div>
+              <button id="refreshButton" type="button">Refresh</button>
+            </div>
+            <pre id="events" class="data-panel"></pre>
+          </section>
 
-      <section class="panel">
-        <h2>Credits</h2>
-        <pre id="credits"></pre>
-      </section>
+          <section class="panel">
+            <p class="eyebrow">Credits</p>
+            <h2>Credits</h2>
+            <pre id="credits" class="data-panel"></pre>
+          </section>
 
-      <section class="panel">
-        <h2>Drafts</h2>
-        <pre id="drafts"></pre>
+          <section class="panel">
+            <p class="eyebrow">Drafts</p>
+            <h2>Draft list</h2>
+            <pre id="drafts" class="data-panel"></pre>
+          </section>
+        </aside>
       </section>
     </main>
     <script type="module" src="/js/session-workspace.js"></script>

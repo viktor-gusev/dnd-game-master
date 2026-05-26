@@ -58,7 +58,7 @@ function makeDataStore() {
 }
 
 function makeEventDelivery() {
-  return { issueToken: async () => ({ streamToken: "token-1", expiresAt: "2026-05-17T00:00:00.000Z" }), emitExtensionFrame() {}, openStream() {} };
+  return { emitExtensionFrame() {}, openStream(args) { this.opened = args; }, rebindContext(args) { this.rebound = args; return { campaignId: args.campaignId || "" }; }, notifyCampaignDeletion() {} };
 }
 
 test("GET /api/campaigns returns summary data only", async () => {
@@ -71,6 +71,16 @@ test("GET /api/campaigns returns summary data only", async () => {
   assert.match(context.response.body, /"campaignId":"campaign_1"/);
   assert.match(context.response.body, /"title":"Friday tavern run"/);
   assert.equal(/"participants"/.test(context.response.body), false);
+});
+
+test("GET /api/campaigns/:campaignId returns brief alongside campaign data", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"brief":/);
 });
 
 test("POST /api/campaigns creates a campaign for the current Game Master", async () => {
@@ -118,4 +128,27 @@ test("POST /api/campaigns/:campaignId/ai/drafts/regenerate returns another revie
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
   assert.match(context.response.body, /"sourceDraftId":"draft_1"/);
+});
+
+test("GET /api/event-delivery opens SSE with browser-compatible query parameters", async () => {
+  const eventDelivery = makeEventDelivery();
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/event-delivery?tabIdentityId=tab-1&localIdentityId=local-1&campaignId=campaign-1";
+  await handler.handle(context);
+  assert.equal(eventDelivery.opened.tabIdentityId, "tab-1");
+  assert.equal(eventDelivery.opened.localIdentityId, "local-1");
+});
+
+test("POST /api/event-delivery/context rebinds runtime campaign context with header identity", async () => {
+  const eventDelivery = makeEventDelivery();
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery });
+  const context = makeContext();
+  context.request.method = "POST";
+  context.request.url = "http://localhost/api/event-delivery/context";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  context.request = Object.assign(context.request, { async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ tabIdentityId: "tab-1", campaignId: null })); } });
+  await handler.handle(context);
+  assert.equal(eventDelivery.rebound.tabIdentityId, "tab-1");
+  assert.equal(eventDelivery.rebound.localIdentityId, "gm-1");
 });

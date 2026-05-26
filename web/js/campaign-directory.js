@@ -1,4 +1,5 @@
 import { createApiClient } from "./api/client.js";
+import { createEventDeliveryClient, getOrCreateTabIdentityId } from "./event-delivery-client.js";
 import { mountDeveloperDiagnosticsPanel } from "./diagnostics.js";
 import { ensureLocalIdentity, saveLocalIdentity, saveCampaignId } from "./state/local-state.js";
 
@@ -28,6 +29,15 @@ export async function initializeCampaignDirectoryApp({
   const list = el("campaignDirectory", doc);
   const detail = el("selectedCampaignDetail", doc);
   const summary = el("campaignDirectorySummary", doc);
+  const tabIdentityId = getOrCreateTabIdentityId(storage, cryptoApi);
+  const eventDelivery = createEventDeliveryClient({
+    tabIdentityId,
+    localIdentityId: state.uuid,
+    campaignId: state.campaignId || "",
+    fetchImpl,
+    onMessage: () => {},
+  });
+  eventDelivery.connect();
 
   function persist() { saveLocalIdentity(state, storage); saveCampaignId(state.campaignId, storage); if (uuidInput) uuidInput.value = state.uuid; if (nicknameInput) nicknameInput.value = state.nickname; }
   function setStatus(text) { if (status) status.textContent = text; }
@@ -54,6 +64,7 @@ export async function initializeCampaignDirectoryApp({
         }
         state.campaignId = campaign.campaignId;
         persist();
+        void eventDelivery.updateCampaignContext(state.campaignId);
         navigateToCampaign(campaign.campaignId, locationApi);
       });
       actions.appendChild(open);
@@ -82,6 +93,7 @@ export async function initializeCampaignDirectoryApp({
               if (!deleted.ok) return setStatus(deleted.error?.message || "Failed to delete campaign.");
               state.campaignId = "";
               persist();
+              void eventDelivery.updateCampaignContext("");
               await refresh();
             });
             card.appendChild(del);
@@ -103,6 +115,14 @@ export async function initializeCampaignDirectoryApp({
     setStatus("Campaign Directory updated.");
   }
 
+  const refreshButton = doc.getElementById("refreshCampaigns");
+  if (refreshButton) {
+    refreshButton.addEventListener("click", async () => {
+      setStatus("Refreshing campaign list.");
+      await refresh();
+    });
+  }
+
   if (doc.getElementById("identityForm")) {
     doc.getElementById("identityForm").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -116,7 +136,7 @@ export async function initializeCampaignDirectoryApp({
       event.preventDefault();
       const response = await api("/api/campaigns", { method: "POST", operation: "create-campaign", body: JSON.stringify({ title: campaignTitleInput?.value }) });
       if (!response.ok) return setStatus(response.error?.message || "Failed to create campaign.");
-      state.campaignId = response.data.campaignId; persist(); navigateToCampaign(response.data.campaignId, locationApi);
+      state.campaignId = response.data.campaignId; persist(); void eventDelivery.updateCampaignContext(state.campaignId); navigateToCampaign(response.data.campaignId, locationApi);
     });
   }
 

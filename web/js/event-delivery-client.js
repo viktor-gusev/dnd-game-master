@@ -1,151 +1,46 @@
-const CLIENT_INSTANCE_KEY = "dnd-gm.eventDelivery.clientInstanceId";
+const TAB_KEY = "dnd-gm.eventDelivery.tabIdentityId";
 
-function randomHex(byteLength, cryptoApi = globalThis.crypto) {
-  if (cryptoApi?.getRandomValues) {
-    const bytes = new Uint8Array(byteLength);
-    cryptoApi.getRandomValues(bytes);
-    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-  }
-  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.slice(0, byteLength * 2);
+function randomId(cryptoApi = globalThis.crypto) {
+  if (typeof cryptoApi?.randomUUID === "function") return cryptoApi.randomUUID();
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function getOrCreateClientInstanceId(storage = globalThis.sessionStorage) {
+export function getOrCreateTabIdentityId(storage = globalThis.sessionStorage, cryptoApi = globalThis.crypto) {
   if (!storage) return "";
-  const existing = storage.getItem(CLIENT_INSTANCE_KEY);
+  const existing = storage.getItem(TAB_KEY);
   if (existing) return existing;
-  const created = randomHex(16);
-  storage.setItem(CLIENT_INSTANCE_KEY, created);
+  const created = randomId(cryptoApi);
+  storage.setItem(TAB_KEY, created);
   return created;
 }
 
-export function createEventDeliveryChannel({
-  fetchImpl = globalThis.fetch,
-  eventSourceFactory = (url) => {
-    if (typeof EventSource !== "function") throw new Error("EventSource is unavailable.");
-    return new EventSource(url);
-  },
-  clientInstanceId,
-  getRequestHeaders = () => ({}),
-  onConnected = () => {},
-  onExtensionFrame = () => {},
-  onStateChange = () => {},
-  tokenPath = "/api/event-delivery/token",
-  streamPath = "/api/event-delivery/stream",
-}) {
-  let channelState = "closed";
+export function createEventDeliveryClient({ fetchImpl = globalThis.fetch, eventSourceFactory = (url) => { if (typeof EventSource !== "function") return null; return new EventSource(url); }, tabIdentityId, localIdentityId, campaignId = "", onMessage = () => {}, onStateChange = () => {} }) {
   let source = null;
-  let reconnectTimer = null;
-  let closedIntentionally = false;
-  let lastConnectWasReconnect = false;
-
-  const setState = (next) => {
-    channelState = next;
-    onStateChange(next);
+  const connect = () => {
+    if (!tabIdentityId || !localIdentityId) return;
+    onStateChange("connecting");
+    source = eventSourceFactory(`/api/event-delivery?tabIdentityId=${encodeURIComponent(tabIdentityId)}&localIdentityId=${encodeURIComponent(localIdentityId)}${campaignId ? `&campaignId=${encodeURIComponent(campaignId)}` : ""}`);
+    if (!source) { onStateChange("unavailable"); return; }
+    source.onmessage = (event) => {
+      try { onMessage(JSON.parse(event.data)); } catch {}
+    };
+    source.onerror = () => onStateChange("reconnecting");
+    source.onopen = () => onStateChange("connected");
   };
-
-  const stopSource = () => {
-    if (source && typeof source.close === "function") source.close();
-    source = null;
-  };
-
-  const clearReconnect = () => {
-    if (!reconnectTimer) return;
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  };
-
-  const scheduleReconnect = () => {
-    if (closedIntentionally) return;
-    clearReconnect();
-    setState("reconnecting");
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      void connect(true);
-    }, 250);
-  };
-
-  const connect = async (isReconnect = false) => {
-    if (!clientInstanceId || typeof fetchImpl !== "function") {
-      setState("failed");
-      return;
-    }
-
-    clearReconnect();
-    stopSource();
-    setState(isReconnect ? "reconnecting" : "connecting");
-    lastConnectWasReconnect = isReconnect;
-
-    let response;
-    try {
-      const headers = {
-        "content-type": "application/json",
-        ...getRequestHeaders(),
-      };
-      response = await fetchImpl(tokenPath, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ clientInstanceId }),
-      });
-    } catch {
-      scheduleReconnect();
-      return;
-    }
-
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      setState("failed");
-      return;
-    }
-
-    if (!response.ok || !data?.ok || !data?.data?.streamToken) {
-      setState("failed");
-      return;
-    }
-
-    closedIntentionally = false;
-    try {
-      source = eventSourceFactory(`${streamPath}?token=${encodeURIComponent(data.data.streamToken)}`);
-    } catch {
-      setState("failed");
-      return;
-    }
-    source.addEventListener("delivery.connected", () => {
-      setState("connected");
-      onConnected({ isReconnect: lastConnectWasReconnect });
-    });
-    source.addEventListener("delivery.heartbeat", () => {
-      if (channelState !== "connected") setState("connected");
-    });
-    source.addEventListener("session.messages.changed", (event) => {
-      try {
-        const frame = JSON.parse(event.data);
-        onExtensionFrame(frame);
-      } catch {}
-    });
-    source.addEventListener("error", () => {
-      stopSource();
-      scheduleReconnect();
-    });
-  };
-
   return {
-    getClientInstanceId() {
-      return clientInstanceId;
+    connect,
+    updateCampaignContext: async (nextCampaignId) => {
+      campaignId = nextCampaignId || "";
+      await fetchImpl("/api/event-delivery/context", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-local-identity-id": localIdentityId,
+        },
+        body: JSON.stringify({ tabIdentityId, campaignId: campaignId || null }),
+      });
     },
-    getState() {
-      return channelState;
-    },
-    async start() {
-      if (channelState === "connecting" || channelState === "connected" || channelState === "reconnecting") return;
-      await connect(false);
-    },
-    close() {
-      closedIntentionally = true;
-      clearReconnect();
-      stopSource();
-      setState("closed");
-    },
+    close() { if (source) source.close(); source = null; onStateChange("closed"); },
+    getTabIdentityId() { return tabIdentityId; },
   };
 }
