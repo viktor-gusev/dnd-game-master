@@ -1,7 +1,7 @@
 export const STORAGE_KEYS = {
   uuid: "dnd-gm.identity.uuid",
   nickname: "dnd-gm.identity.nickname",
-  sessionId: "dnd-gm.sessionId",
+  campaignId: "dnd-gm.campaignId",
 };
 
 function fallbackUuid() {
@@ -27,7 +27,7 @@ export function loadLocalState(storage = globalThis.localStorage) {
   return {
     uuid: storage?.getItem(STORAGE_KEYS.uuid) || "",
     nickname: storage?.getItem(STORAGE_KEYS.nickname) || "",
-    sessionId: storage?.getItem(STORAGE_KEYS.sessionId) || "",
+    campaignId: storage?.getItem(STORAGE_KEYS.campaignId) || "",
   };
 }
 
@@ -39,7 +39,12 @@ export function saveLocalIdentity(identity, storage = globalThis.localStorage) {
 
 export function saveSessionId(sessionId, storage = globalThis.localStorage) {
   if (!storage) return;
-  storage.setItem(STORAGE_KEYS.sessionId, sessionId || "");
+  storage.setItem(STORAGE_KEYS.campaignId, sessionId || "");
+}
+
+export function saveCampaignId(campaignId, storage = globalThis.localStorage) {
+  if (!storage) return;
+  storage.setItem(STORAGE_KEYS.campaignId, campaignId || "");
 }
 
 export function ensureLocalIdentity(storage = globalThis.localStorage, cryptoApi = globalThis.crypto) {
@@ -47,7 +52,7 @@ export function ensureLocalIdentity(storage = globalThis.localStorage, cryptoApi
   if (current.uuid && current.nickname) return current;
   const uuid = current.uuid || createLocalIdentityUuid(cryptoApi);
   const nickname = current.nickname || createDefaultNickname(uuid);
-  const identity = { uuid, nickname, sessionId: current.sessionId };
+  const identity = { uuid, nickname, campaignId: current.campaignId };
   saveLocalIdentity(identity, storage);
   return identity;
 }

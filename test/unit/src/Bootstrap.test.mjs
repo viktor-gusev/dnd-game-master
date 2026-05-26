@@ -12,8 +12,8 @@ function makeDeps() {
     async init() {
       calls.push(["dataStore.init"]);
     },
-    async cleanupExpiredSessions() {
-      calls.push(["dataStore.cleanupExpiredSessions"]);
+    async cleanupExpiredCampaigns() {
+      calls.push(["dataStore.cleanupExpiredCampaigns"]);
     },
   };
   const pipeline = {
@@ -141,7 +141,7 @@ test("initializes static handler and registers it before server start", async ()
   await waitUntilServerStart(deps);
   await app.stop();
   assert.equal(deps.calls[0][0], "dataStore.init");
-  assert.equal(deps.calls[1][0], "dataStore.cleanupExpiredSessions");
+  assert.equal(deps.calls[1][0], "dataStore.cleanupExpiredCampaigns");
   assert.deepEqual(deps.calls[2], ["sourceFactory.create", { root: "/tmp/project/web", prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] }]);
   assert.deepEqual(deps.calls[3], ["staticHandler.init", { sources: [{ root: "/tmp/project/web", prefix: "/", allow: { ".": ["."] }, defaults: ["index.html"] }] }]);
   assert.equal(deps.calls[4][0], "pipeline.addHandler");
@@ -158,7 +158,7 @@ test("startup cleanup completes before server start", async () => {
   await waitUntilServerStart(deps);
   await app.stop();
 
-  const cleanupIndex = deps.calls.findIndex((x) => x[0] === "dataStore.cleanupExpiredSessions");
+  const cleanupIndex = deps.calls.findIndex((x) => x[0] === "dataStore.cleanupExpiredCampaigns");
   const startIndex = deps.calls.findIndex((x) => x[0] === "server.start");
   assert.ok(cleanupIndex >= 0);
   assert.ok(startIndex > cleanupIndex);

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Campaign Workspace · DND Game Master</title>
+    <link rel="stylesheet" href="/css/app.css">
+  </head>
+  <body>
+    <main id="workspaceShell">
+      <header class="hero panel">
+        <p class="eyebrow">Campaign Workspace</p>
+        <h1 id="campaignTitle">Loading campaign…</h1>
+        <p id="campaignSubtitle">Opening selected campaign.</p>
+        <p id="status">Preparing workspace.</p>
+        <p><a id="backToDirectory" href="/">Back to Campaign Directory</a></p>
+      </header>
+
+      <section class="panel">
+        <h2>Brief</h2>
+        <form id="briefForm" class="card-form">
+          <input name="title" placeholder="Campaign title">
+          <textarea name="summary" placeholder="Brief summary"></textarea>
+          <textarea name="planning" placeholder="Planning"></textarea>
+          <textarea name="recap" placeholder="Recap"></textarea>
+          <button type="submit">Save brief</button>
+        </form>
+        <pre id="brief"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Character Sheets</h2>
+        <form id="sheetForm" class="card-form">
+          <input name="title" placeholder="Character sheet title">
+          <textarea name="content" placeholder="Character sheet content"></textarea>
+          <button type="submit">Create sheet</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>AI Drafts</h2>
+        <form id="draftForm" class="card-form">
+          <input name="title" placeholder="Draft title">
+          <textarea name="content" placeholder="Draft content"></textarea>
+          <button type="submit">Create draft</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="section-header">
+          <h2>Event Feed</h2>
+          <button id="refreshButton" type="button">Refresh</button>
+        </div>
+        <pre id="events"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Credits</h2>
+        <pre id="credits"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Drafts</h2>
+        <pre id="drafts"></pre>
+      </section>
+    </main>
+    <script type="module" src="/js/session-workspace.js"></script>
+  </body>
+</html>

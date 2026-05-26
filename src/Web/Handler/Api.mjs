@@ -1,8 +1,10 @@
 // @ts-check
 
+import DataStore from "../../Store/File/Data.mjs";
+
 /**
  * @namespace Dnd_Gm_Web_Handler_Api
- * @description HTTP API handler for the application.
+ * @description HTTP API handler for campaign-centered application state.
  */
 
 function json(res, status, body) {
@@ -27,6 +29,10 @@ function error(code, message) {
 
 function success(data) {
   return { ok: true, data };
+}
+
+function complete(context) {
+  if (typeof context?.complete === "function") context.complete();
 }
 
 async function readBody(req) {
@@ -54,15 +60,35 @@ function logEventDeliveryFailure(req, err) {
   console.warn(`[event-delivery] request failed ${details.join(" ")}`, err?.message ? `message=${err.message}` : "");
 }
 
-function findParticipantOrThrow(current, identityId) {
-  if (!current.participants.some((participant) => participant.identityId === identityId)) {
-    throw Object.assign(new Error("Identity is not a session participant."), { code: "invalid_input" });
+function campaignSummaryForList(campaign, currentIdentityId = "") {
+  return {
+    campaignId: campaign.campaignId,
+    title: campaign.title,
+    gm: campaign.gm,
+    participantCount: campaign.participantCount,
+    currentUserParticipant: !!currentIdentityId && campaign.participants.some((participant) => participant.identityId === currentIdentityId),
+    lastActivityAt: campaign.lastActivityAt,
+    brief: campaign.brief,
+  };
+}
+
+function campaignFrom(current) {
+  return current?.campaign || current || null;
+}
+
+function ensureParticipant(campaign, identityId) {
+  if (!campaign.participants.some((participant) => participant.identityId === identityId)) {
+    throw Object.assign(new Error("Identity is not a campaign participant."), { code: "invalid_input" });
   }
+}
+
+function eventPayload(operation, related = {}) {
+  return { operation, ...related };
 }
 
 export default class Dnd_Gm_Web_Handler_Api {
   constructor({ dataStore, eventDelivery }) {
-    this.dataStore = dataStore;
+    this.dataStore = dataStore || new DataStore();
     this.eventDelivery = eventDelivery;
     this.getRegistrationInfo = () => ({ name: this.constructor.name, stage: "PROCESS" });
 
@@ -77,111 +103,223 @@ export default class Dnd_Gm_Web_Handler_Api {
     this.postLocalIdentity = async (req, res, context) => {
       const body = await readBody(req);
       const identity = await this.dataStore.upsertIdentity(body.uuid, body.nickname);
-      context.complete();
+      complete(context);
       json(res, 200, success({ identity }));
     };
 
     this.getCurrentIdentity = async (req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      context.complete();
+      complete(context);
       json(res, 200, success({ identity }));
     };
 
-    this.listSessions = async (req, res, context) => {
+    this.listCampaigns = async (req, res, context) => {
       const identityId = req.headers["x-local-identity-id"] || "";
       if (identityId) await this.resolveIdentityFromHeader(req);
-      const sessions = await this.dataStore.listSessions(identityId);
-      context.complete();
-      json(res, 200, success({ sessions }));
+      const campaigns = await this.dataStore.listCampaigns(identityId);
+      complete(context);
+      json(res, 200, success({ campaigns: campaigns.map((campaign) => campaignSummaryForList(campaign, identityId)) }));
     };
 
-    this.createSession = async (req, res, context) => {
+    this.createCampaign = async (req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
       const body = await readBody(req);
-      const current = await this.dataStore.createSession(identity, { title: body.title });
-      context.complete();
-      json(res, 200, success({ sessionId: current.session.sessionId, session: current.session }));
+      const current = await this.dataStore.createCampaign(identity, { title: body.title, linkCode: body.linkCode });
+      const campaign = campaignFrom(current);
+      complete(context);
+      json(res, 200, success({ campaignId: campaign.campaignId, campaign }));
     };
 
-    this.getSession = async (sessionId, req, res, context) => {
+    this.getCampaign = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.loadSession(sessionId, identity.id);
-      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      findParticipantOrThrow(current, identity.id);
-      context.complete();
-      json(res, 200, success({ session: current.session, participants: current.participants }));
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      ensureParticipant(current, identity.id);
+      complete(context);
+      json(res, 200, success({ campaign: campaignFrom(current), participants: current.participants, materials: current.materials, assets: current.assets, characterSheets: current.characterSheets, aiDrafts: current.aiDrafts, credits: current.credits }));
     };
 
-    this.joinSession = async (sessionId, req, res, context) => {
+    this.patchCampaign = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.joinSession(sessionId, identity);
-      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      context.complete();
-      json(res, 200, success({ sessionId: current.session.sessionId, joined: true, session: current.session }));
-    };
-
-    this.deleteSession = async (sessionId, req, res, context) => {
-      const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.loadSession(sessionId, identity.id);
-      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      if (current.session.gm?.uuid !== identity.id) {
-        throw Object.assign(new Error("Only the Game Master may delete this session."), { code: "forbidden" });
-      }
-      const deleted = await this.dataStore.deleteSession(sessionId);
-      if (!deleted) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      context.complete();
-      json(res, 200, success({ sessionId, deleted: true }));
-    };
-
-    this.postMessage = async (sessionId, req, res, context) => {
-      const crypto = await import("node:crypto");
-      const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.loadSession(sessionId, identity.id);
-      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      findParticipantOrThrow(current, identity.id);
-
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      const campaign = campaignFrom(current);
+      if (campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may update this campaign."), { code: "forbidden" });
       const body = await readBody(req);
-      if (!body.text || !String(body.text).trim()) {
-        throw Object.assign(new Error("Message text is required."), { code: "invalid_input" });
-      }
-
-      const message = {
-        id: `msg_${crypto.randomBytes(6).toString("hex")}`,
-        sessionId,
-        identityId: identity.id,
-        nickname: identity.nickname,
-        displayName: identity.nickname,
-        type: body.type || "player_action",
-        text: String(body.text).trim(),
-        createdAt: new Date().toISOString(),
-      };
-
-      await this.dataStore.appendMessage(sessionId, message);
-      try {
-        this.eventDelivery.emitExtensionFrame({
-          name: "session.messages.changed",
-          principalRefs: current.participants.map((participant) => participant.identityId),
-          payload: {
-            sessionId,
-            reason: "message_appended",
-            messageId: message.id,
-          },
-        });
-      } catch (notifyError) {
-        console.warn(`[event-delivery] message notification failed sessionId=${sessionId}`, notifyError?.message || notifyError);
-      }
-
-      context.complete();
-      json(res, 200, success({ message }));
+      const updated = await this.dataStore.updateCampaign(campaignId, body, identity);
+      complete(context);
+      json(res, 200, success({ campaign: campaignFrom(updated) }));
     };
 
-    this.getMessages = async (sessionId, req, res, context) => {
+    this.joinCampaign = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.loadSession(sessionId, identity.id);
-      if (!current) throw Object.assign(new Error("Unknown session id."), { code: "unknown_session" });
-      findParticipantOrThrow(current, identity.id);
-      context.complete();
-      json(res, 200, success({ messages: current.messages }));
+      const body = await readBody(req);
+      const current = await this.dataStore.joinCampaign(campaignId, identity, body);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      complete(context);
+      json(res, 200, success({ campaignId: campaignFrom(current).campaignId, joined: true, campaign: campaignFrom(current) }));
+    };
+
+    this.deleteCampaign = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      if (campaignFrom(current).gm?.uuid !== identity.id) {
+        throw Object.assign(new Error("Only the Game Master may delete this campaign."), { code: "forbidden" });
+      }
+      const deleted = await this.dataStore.deleteCampaign(campaignId);
+      if (!deleted) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      complete(context);
+      json(res, 200, success({ campaignId, deleted: true }));
+    };
+
+    this.getBrief = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      ensureParticipant(current, identity.id);
+      complete(context);
+      json(res, 200, success({ brief: current.brief }));
+    };
+
+    this.patchBrief = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      if (campaignFrom(current).gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may update brief data."), { code: "forbidden" });
+      const body = await readBody(req);
+      const updated = await this.dataStore.updateBrief(campaignId, body, identity);
+      complete(context);
+      json(res, 200, success({ brief: updated.brief }));
+    };
+
+    this.listEvents = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      ensureParticipant(current, identity.id);
+      complete(context);
+      json(res, 200, success({ events: current.events }));
+    };
+
+    this.listCredits = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      ensureParticipant(current, identity.id);
+      complete(context);
+      json(res, 200, success({ credits: current.credits }));
+    };
+
+    this.listMaterials = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      ensureParticipant(current, identity.id);
+      complete(context);
+      json(res, 200, success({ materials: current.materials }));
+    };
+
+    this.postMaterial = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      if (campaignFrom(current).gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may create materials."), { code: "forbidden" });
+      const material = await this.dataStore.createMaterial(campaignId, body, identity);
+      complete(context);
+      json(res, 200, success({ material }));
+    };
+
+    this.listCharacterSheets = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      ensureParticipant(current, identity.id);
+      complete(context);
+      json(res, 200, success({ characterSheets: current.characterSheets }));
+    };
+
+    this.postCharacterSheet = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const sheet = await this.dataStore.createCharacterSheet(campaignId, body, identity);
+      complete(context);
+      json(res, 200, success({ characterSheet: sheet }));
+    };
+
+    this.patchCharacterSheet = async (campaignId, sheetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const sheet = await this.dataStore.updateCharacterSheet(campaignId, sheetId, body, identity);
+      if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
+      complete(context);
+      json(res, 200, success({ characterSheet: sheet }));
+    };
+
+    this.approveCharacterSheet = async (campaignId, sheetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const sheet = await this.dataStore.approveCharacterSheet(campaignId, sheetId, identity);
+      if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
+      complete(context);
+      json(res, 200, success({ characterSheet: sheet }));
+    };
+
+    this.returnCharacterSheet = async (campaignId, sheetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const sheet = await this.dataStore.returnCharacterSheetToDraft(campaignId, sheetId, identity);
+      if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
+      complete(context);
+      json(res, 200, success({ characterSheet: sheet }));
+    };
+
+    this.postAIDraft = async (campaignId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const result = await this.dataStore.createAIDraft(campaignId, body, identity);
+      complete(context);
+      json(res, 200, success({ aiDraft: result.aiDraft || result }));
+    };
+
+    this.getAIDraft = async (campaignId, draftId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const draft = await this.dataStore.getAIDraft(campaignId, draftId, identity.id);
+      if (!draft) throw Object.assign(new Error("Unknown AI draft id."), { code: "unknown_ai_draft" });
+      complete(context);
+      json(res, 200, success({ aiDraft: draft }));
+    };
+
+    this.patchAIDraft = async (campaignId, draftId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const draft = await this.dataStore.updateAIDraft(campaignId, draftId, body, identity);
+      if (!draft) throw Object.assign(new Error("Unknown AI draft id."), { code: "unknown_ai_draft" });
+      complete(context);
+      json(res, 200, success({ aiDraft: draft }));
+    };
+
+    this.regenerateAIDraft = async (campaignId, draftId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const draft = await this.dataStore.regenerateAIDraft(campaignId, draftId, identity);
+      if (!draft) throw Object.assign(new Error("Unknown AI draft id."), { code: "unknown_ai_draft" });
+      complete(context);
+      json(res, 200, success({ aiDraft: draft }));
+    };
+
+    this.acceptAIDraft = async (campaignId, draftId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const accepted = await this.dataStore.acceptAIDraft(campaignId, draftId, identity);
+      if (!accepted) throw Object.assign(new Error("Unknown AI draft id."), { code: "unknown_ai_draft" });
+      complete(context);
+      json(res, 200, success({ aiDraft: accepted }));
+    };
+
+    this.rejectAIDraft = async (campaignId, draftId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const rejected = await this.dataStore.rejectAIDraft(campaignId, draftId, identity);
+      if (!rejected) throw Object.assign(new Error("Unknown AI draft id."), { code: "unknown_ai_draft" });
+      complete(context);
+      json(res, 200, success({ aiDraft: rejected }));
     };
 
     this.postEventDeliveryToken = async (req, res, context) => {
@@ -193,7 +331,7 @@ export default class Dnd_Gm_Web_Handler_Api {
         clientInstanceId: body.clientInstanceId,
         requestContext: context,
       });
-      context.complete();
+      complete(context);
       jsonNoStore(res, 200, success({ streamToken: token.streamToken, expiresAt: token.expiresAt }));
     };
 
@@ -206,7 +344,7 @@ export default class Dnd_Gm_Web_Handler_Api {
         request: req,
         response: res,
       });
-      context.complete();
+      complete(context);
     };
 
     this.handle = async (context) => {
@@ -219,47 +357,67 @@ export default class Dnd_Gm_Web_Handler_Api {
         if (url.pathname === "/api/identity/current" && method === "GET") return await this.getCurrentIdentity(req, res, context);
         if (url.pathname === "/api/event-delivery/token" && method === "POST") return await this.postEventDeliveryToken(req, res, context);
         if (url.pathname === "/api/event-delivery/stream" && method === "GET") return await this.getEventDeliveryStream(req, res, context);
-        if (url.pathname === "/api/sessions" && method === "GET") return await this.listSessions(req, res, context);
-        if (url.pathname === "/api/sessions" && method === "POST") return await this.createSession(req, res, context);
 
-        const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(join|messages))?$/);
-        if (sessionMatch) {
-          const sessionId = sessionMatch[1];
-          const action = sessionMatch[2] || null;
-          if (action === null && method === "GET") return await this.getSession(sessionId, req, res, context);
-          if (action === null && method === "DELETE") return await this.deleteSession(sessionId, req, res, context);
-          if (action === "join" && method === "POST") return await this.joinSession(sessionId, req, res, context);
-          if (action === "messages" && method === "POST") return await this.postMessage(sessionId, req, res, context);
-          if (action === "messages" && method === "GET") return await this.getMessages(sessionId, req, res, context);
+        if (url.pathname === "/api/campaigns" && method === "GET") return await this.listCampaigns(req, res, context);
+        if (url.pathname === "/api/campaigns" && method === "POST") return await this.createCampaign(req, res, context);
+
+        const campaignMatch = url.pathname.match(/^\/api\/campaigns\/([^/]+)(?:\/(.+))?$/);
+        if (campaignMatch) {
+          const campaignId = campaignMatch[1];
+          const tail = campaignMatch[2] || "";
+
+          if (!tail && method === "GET") return await this.getCampaign(campaignId, req, res, context);
+          if (!tail && method === "PATCH") return await this.patchCampaign(campaignId, req, res, context);
+          if (!tail && method === "DELETE") return await this.deleteCampaign(campaignId, req, res, context);
+          if (tail === "join" && method === "POST") return await this.joinCampaign(campaignId, req, res, context);
+          if (tail === "brief" && method === "GET") return await this.getBrief(campaignId, req, res, context);
+          if (tail === "brief" && method === "PATCH") return await this.patchBrief(campaignId, req, res, context);
+          if (tail === "events" && method === "GET") return await this.listEvents(campaignId, req, res, context);
+          if (tail === "credits" && method === "GET") return await this.listCredits(campaignId, req, res, context);
+          if (tail === "materials" && method === "GET") return await this.listMaterials(campaignId, req, res, context);
+          if (tail === "materials" && method === "POST") return await this.postMaterial(campaignId, req, res, context);
+          if (tail === "character-sheets" && method === "GET") return await this.listCharacterSheets(campaignId, req, res, context);
+          if (tail === "character-sheets" && method === "POST") return await this.postCharacterSheet(campaignId, req, res, context);
+
+          const subMatch = tail.match(/^(character-sheets|ai\/drafts)\/([^/]+)(?:\/(approve|return-to-draft|regenerate|accept|reject))?$/);
+          if (subMatch) {
+            const collection = subMatch[1];
+            const itemId = subMatch[2];
+            const action = subMatch[3] || "";
+            if (collection === "character-sheets" && !action && method === "PATCH") return await this.patchCharacterSheet(campaignId, itemId, req, res, context);
+            if (collection === "character-sheets" && action === "approve" && method === "POST") return await this.approveCharacterSheet(campaignId, itemId, req, res, context);
+            if (collection === "character-sheets" && action === "return-to-draft" && method === "POST") return await this.returnCharacterSheet(campaignId, itemId, req, res, context);
+            if (collection === "ai/drafts" && !action && method === "GET") return await this.getAIDraft(campaignId, itemId, req, res, context);
+            if (collection === "ai/drafts" && !action && method === "PATCH") return await this.patchAIDraft(campaignId, itemId, req, res, context);
+            if (collection === "ai/drafts" && action === "regenerate" && method === "POST") return await this.regenerateAIDraft(campaignId, itemId, req, res, context);
+            if (collection === "ai/drafts" && action === "accept" && method === "POST") return await this.acceptAIDraft(campaignId, itemId, req, res, context);
+            if (collection === "ai/drafts" && action === "reject" && method === "POST") return await this.rejectAIDraft(campaignId, itemId, req, res, context);
+          }
         }
 
         if (url.pathname.startsWith("/api/")) {
-          context.complete();
+          complete(context);
           return json(res, 404, error("not_found", "Not found."));
         }
         return;
       } catch (err) {
         if (url.pathname.startsWith("/api/event-delivery/")) logEventDeliveryFailure(req, err);
         if (err?.code === "invalid_json") return json(res, 400, error("invalid_json", "Invalid JSON body."));
-        if (err?.code === "invalid_session_id") return json(res, 400, error("invalid_session_id", "Invalid session id."));
-        if (err?.code === "invalid_client_instance_id") return json(res, 400, error("invalid_client_instance_id", "Invalid client instance id."));
-        if (err?.code === "invalid_input") return json(res, 400, error("invalid_input", err.message));
         if (err?.code === "missing_identity") return json(res, 400, error("missing_identity", "Missing local identity id."));
         if (err?.code === "unknown_identity") return json(res, 400, error("unknown_identity", "Unknown local identity id."));
+        if (err?.code === "invalid_input") return json(res, 400, error("invalid_input", err.message));
         if (err?.code === "forbidden") return json(res, 403, error("forbidden", err.message || "Forbidden."));
+        if (err?.code === "unknown_campaign") return json(res, 404, error("unknown_campaign", "Unknown campaign id."));
+        if (err?.code === "unknown_character_sheet") return json(res, 404, error("unknown_character_sheet", "Unknown character sheet id."));
+        if (err?.code === "unknown_ai_draft") return json(res, 404, error("unknown_ai_draft", "Unknown AI draft id."));
+        if (err?.code === "invalid_client_instance_id") return json(res, 400, error("invalid_client_instance_id", "Invalid client instance id."));
         if (err?.code === "principal_unresolved") return json(res, 400, error("principal_unresolved", "Unable to resolve principal ref."));
         if (err?.code === "missing_token") return json(res, 400, error("missing_token", "Missing stream token."));
         if (err?.code === "invalid_token") return json(res, 401, error("invalid_token", "Invalid stream token."));
         if (err?.code === "expired_token") return json(res, 401, error("expired_token", "Expired stream token."));
         if (err?.code === "security_conflict") return json(res, 409, error("security_conflict", "Client instance is already bound to another principal."));
-        if (err?.code === "unknown_session") return json(res, 404, error("unknown_session", "Unknown session id."));
         return json(res, 500, error("internal_error", "Internal server error."));
       }
     };
   }
 }
-
-export const __deps__ = Object.freeze({
-  dataStore: "Dnd_Gm_Store_File_Data$",
-  eventDelivery: "Dnd_Gm_Service_EventDelivery_Runtime$",
-});

@@ -9,23 +9,23 @@
   <body>
     <main>
       <header class="hero panel">
-        <p class="eyebrow">Session Directory</p>
+        <p class="eyebrow">Campaign Directory</p>
         <h1>DND Game Master</h1>
-        <p>Open a session workspace after choosing or creating a game session.</p>
+        <p>Open a campaign workspace after choosing or creating a campaign.</p>
         <p id="status">Preparing browser-local identity.</p>
       </header>
 
       <section class="panel">
         <div class="section-header">
           <div>
-            <p class="eyebrow">Available sessions</p>
-            <h2>Session Directory</h2>
-            <p id="sessionDirectorySummary">Loading sessions.</p>
+            <p class="eyebrow">Available campaigns</p>
+            <h2>Campaign Directory</h2>
+            <p id="campaignDirectorySummary">Loading campaigns.</p>
           </div>
-          <button id="refreshSessions" type="button">Refresh list</button>
+          <button id="refreshCampaigns" type="button">Refresh list</button>
         </div>
-        <div id="sessionDirectory" class="session-directory"></div>
-        <div id="selectedSessionDetail" class="session-detail"></div>
+        <div id="campaignDirectory" class="campaign-directory"></div>
+        <div id="selectedCampaignDetail" class="campaign-detail"></div>
       </section>
 
       <section class="panel two-column-layout">
@@ -38,10 +38,10 @@
           <button type="submit">Save identity</button>
         </form>
 
-        <form id="createSessionForm" class="card-form">
-          <h2>Create Session</h2>
-          <label for="sessionTitle">Session title</label>
-          <input id="sessionTitle" name="sessionTitle" placeholder="Friday tavern run">
+        <form id="createCampaignForm" class="card-form">
+          <h2>Create Campaign</h2>
+          <label for="campaignTitle">Campaign title</label>
+          <input id="campaignTitle" name="campaignTitle" placeholder="Friday tavern run">
           <button type="submit">Create and open workspace</button>
         </form>
       </section>

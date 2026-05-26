@@ -67,7 +67,7 @@ export default class Bootstrap {
       await loadEnvFile(`${projectRoot}/.env`);
       if (dataStore) {
         await dataStore.init();
-        await dataStore.cleanupExpiredSessions();
+        await dataStore.cleanupExpiredCampaigns();
       }
       const port = parsePort(cliArgs);
       const webRoot = `${projectRoot}/web`;
