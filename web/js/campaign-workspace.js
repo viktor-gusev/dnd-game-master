@@ -28,6 +28,7 @@ export async function initializeCampaignWorkspace(shell) {
     if (status) status.textContent = "Campaign id is missing. Return to the Campaign Directory.";
     return;
   }
+  if (status) status.textContent = "Preparing workspace.";
   if (backLink) backLink.setAttribute("href", "/");
 
   async function load() {

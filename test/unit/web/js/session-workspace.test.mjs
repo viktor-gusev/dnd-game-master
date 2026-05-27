@@ -42,4 +42,5 @@ test("campaign workspace loads campaign data and shows durable projections", asy
   assert.match(document.getElementById("campaignSubtitle").textContent, /Participants: 1/);
   assert.match(document.getElementById("brief").textContent, /Friday tavern run/);
   assert.equal(fetchCalls.includes("/api/campaigns/campaign-1"), true);
+  assert.equal(document.getElementById("status").textContent, "Preparing workspace.");
 });

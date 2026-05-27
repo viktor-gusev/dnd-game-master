@@ -22,6 +22,7 @@ export async function initializeCampaignDirectoryApp(shell) {
   const identityNickname = el("identityNickname", doc);
   const campaignTitleInput = el("campaignTitle", doc);
   const refreshButton = el("refreshCampaigns", doc);
+  const shellPanel = el("shellPanel", doc);
 
   shell.setPageContext({ kind: "campaign directory", campaignId: "" });
   if (identityUuid) identityUuid.value = shell.identity.uuid;
@@ -94,6 +95,8 @@ export async function initializeCampaignDirectoryApp(shell) {
   }
 
   if (refreshButton) refreshButton.addEventListener("click", refresh);
+  if (el("openIdentityEditor", doc)) el("openIdentityEditor", doc).addEventListener("click", () => shell.openIdentityEditor());
+  if (el("openCreateCampaign", doc)) el("openCreateCampaign", doc).addEventListener("click", () => shell.openCampaignCreator());
   if (identityDialog) {
     const form = identityDialog.querySelector("form");
     if (form) form.addEventListener("submit", async (event) => {
@@ -120,6 +123,7 @@ export async function initializeCampaignDirectoryApp(shell) {
   }
 
   shell.pageError("");
+  if (shellPanel) shellPanel.hidden = true;
   await refresh();
 }
 

@@ -48,7 +48,7 @@ test("shared shell resolves identity and tab identity before page controllers st
 
   assert.equal(pageStarted, true);
   assert.equal(shell.tabIdentityId, "tab-1");
-  assert.equal(document.getElementById("shellContextTitle").textContent, "Campaign Directory");
+  assert.equal(document.getElementById("shellContextTitle").textContent, "Campaigns");
   assert.equal(document.getElementById("shellError").textContent, "Errors 0");
   assert.equal(document.getElementById("shellDeviceStatus").textContent, "Device ready");
 });
@@ -105,9 +105,12 @@ test("browser entry pages contain the shared shell frame and dedicated page runt
   ]);
 
   for (const html of [directoryHtml, workspaceHtml]) {
-    assert.match(html, /class="application-header panel"/);
+    assert.match(html, /class="application-header"/);
     assert.match(html, /class="page-runtime-area"/);
-    assert.match(html, /class="application-footer panel"/);
-    assert.doesNotMatch(html, /shellIdentity/);
+    assert.match(html, /class="application-footer"/);
+    assert.match(html, /id="shellPanel"/);
+    assert.doesNotMatch(html, /Browser Shell/);
+    assert.doesNotMatch(html, /Primary Flow/);
+    assert.doesNotMatch(html, /Secondary Flow/);
   }
 });

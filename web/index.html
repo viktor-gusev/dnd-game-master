@@ -8,62 +8,46 @@
   </head>
   <body class="directory-page">
     <main class="page-shell directory-shell">
-      <header class="application-header panel">
+      <header class="application-header" aria-label="Application Header">
         <div class="shell-context">
-          <p class="eyebrow">Browser Shell</p>
-          <strong id="shellContextTitle">Campaign Directory</strong>
+          <strong id="shellContextTitle">Campaigns</strong>
+          <span class="shell-pill" id="shellConnectionState">connecting</span>
+          <button id="shellUpdates" type="button">Updates</button>
+          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
         </div>
         <div class="shell-status-cluster">
-          <button id="shellUpdates" type="button">Updates</button>
-          <button id="shellProfile" type="button">Profile</button>
           <button id="shellDeviceStatus" type="button">Device ready</button>
-          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
-          <span id="shellConnectionState" class="shell-pill">connecting</span>
+          <button id="shellProfile" type="button">Profile</button>
+          <button id="shellMenu" type="button" aria-expanded="false" aria-controls="shellPanel">Menu</button>
         </div>
       </header>
 
       <section id="pageRuntimeArea" class="page-runtime-area">
-        <section class="panel hero hero-grid">
-          <div class="hero-copy">
-            <p class="eyebrow">Campaign Directory</p>
-            <h1>DND Game Master</h1>
-            <p>Choose a campaign, open the workspace when you are ready, and use the secondary surfaces for details, identity, or creation.</p>
-            <p id="status" class="status-line">Preparing browser-local identity.</p>
-          </div>
-          <div class="hero-aside">
-            <div class="stat-card">
-              <span class="stat-label">Primary flow</span>
-              <strong>List, inspect, open</strong>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Secondary flow</span>
-              <strong>Identity, create, refresh</strong>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel directory-main">
+        <section class="directory-main">
           <div class="section-header">
             <div>
-              <p class="eyebrow">Available campaigns</p>
-              <h2>Campaign Directory</h2>
+              <p class="eyebrow">Campaign Directory</p>
+              <h1>Campaigns</h1>
               <p id="campaignDirectorySummary">Loading campaigns.</p>
             </div>
             <div class="section-actions">
-              <button id="openIdentityEditor" type="button" onclick="document.getElementById('identityDialog').showModal()">Edit identity</button>
-              <button id="openCreateCampaign" type="button" onclick="document.getElementById('createCampaignDialog').showModal()">Create campaign</button>
+              <button id="openIdentityEditor" type="button">Edit identity</button>
+              <button id="openCreateCampaign" type="button">Create campaign</button>
               <button id="refreshCampaigns" type="button">Refresh list</button>
             </div>
           </div>
+          <p id="status" class="status-line">Preparing browser-local identity.</p>
           <div id="campaignDirectory" class="campaign-directory"></div>
         </section>
       </section>
 
-      <footer class="application-footer panel">
+      <footer class="application-footer" aria-label="Application Footer">
         <button id="footerCampaigns" type="button">Campaigns</button>
         <button id="footerUpdates" type="button">Updates</button>
         <button id="footerProfile" type="button">Profile</button>
       </footer>
+
+      <section id="shellPanel" class="shell-panel" hidden></section>
 
       <dialog id="campaignDetailsDialog" class="shell-dialog">
         <div id="selectedCampaignDetail" class="campaign-detail"></div>

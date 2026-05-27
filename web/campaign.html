@@ -8,49 +8,32 @@
   </head>
   <body class="workspace-page">
     <main id="workspaceShell" class="page-shell workspace-shell">
-      <header class="application-header panel">
+      <header class="application-header" aria-label="Application Header">
         <div class="shell-context">
-          <p class="eyebrow">Browser Shell</p>
-          <strong id="shellContextTitle">Campaign Workspace</strong>
+          <strong id="shellContextTitle">Campaigns</strong>
+          <span class="shell-pill" id="shellConnectionState">connecting</span>
+          <button id="shellUpdates" type="button">Updates</button>
+          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
         </div>
         <div class="shell-status-cluster">
-          <button id="shellUpdates" type="button">Updates</button>
-          <button id="shellProfile" type="button">Profile</button>
           <button id="shellDeviceStatus" type="button">Device ready</button>
-          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
-          <span id="shellConnectionState" class="shell-pill">connecting</span>
+          <button id="shellProfile" type="button">Profile</button>
+          <button id="shellMenu" type="button" aria-expanded="false" aria-controls="shellPanel">Menu</button>
         </div>
       </header>
 
       <section id="pageRuntimeArea" class="page-runtime-area">
-        <section class="hero panel hero-grid">
-          <div class="hero-copy">
-            <p class="eyebrow">Campaign Workspace</p>
-            <h1 id="campaignTitle">Loading campaign…</h1>
-            <p id="campaignSubtitle">Opening selected campaign.</p>
-            <p id="status" class="status-line">Preparing workspace.</p>
-            <p><a id="backToDirectory" href="/">Back to Campaign Directory</a></p>
-          </div>
-          <div class="hero-aside">
-            <div class="stat-card">
-              <span class="stat-label">Working set</span>
-              <strong>Brief, sheets, drafts</strong>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Reference</span>
-              <strong>Events and credits</strong>
-            </div>
-          </div>
-        </section>
-
         <section class="workspace-grid">
-          <section class="panel workspace-primary">
+          <section class="workspace-primary">
             <div class="section-header">
               <div>
-                <p class="eyebrow">Campaign Brief</p>
-                <h2>Brief</h2>
+                <p class="eyebrow">Campaign Workspace</p>
+                <h1 id="campaignTitle">Loading campaign…</h1>
+                <p id="campaignSubtitle">Opening selected campaign.</p>
               </div>
+              <a id="backToDirectory" href="/">Back to Campaign Directory</a>
             </div>
+            <p id="status" class="status-line">Preparing workspace.</p>
             <form id="briefForm" class="card-form surface-card">
               <input name="title" placeholder="Campaign title">
               <textarea name="summary" placeholder="Brief summary"></textarea>
@@ -108,11 +91,13 @@
         </section>
       </section>
 
-      <footer class="application-footer panel">
+      <footer class="application-footer" aria-label="Application Footer">
         <button id="footerCampaigns" type="button">Campaigns</button>
         <button id="footerUpdates" type="button">Updates</button>
         <button id="footerProfile" type="button">Profile</button>
       </footer>
+
+      <section id="shellPanel" class="shell-panel" hidden></section>
     </main>
     <script type="module" src="/js/session-workspace.js"></script>
   </body>

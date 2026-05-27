@@ -15,6 +15,13 @@ function setValue(node, value) {
   if (node && "value" in node) node.value = value;
 }
 
+function setPanelContent(doc, content, open = false) {
+  const panel = el("shellPanel", doc);
+  if (!panel) return;
+  panel.hidden = !open;
+  panel.innerHTML = content || "";
+}
+
 export async function initializeBrowserApplicationShell({
   document: doc = globalThis.document,
   storage = globalThis.localStorage,
@@ -50,7 +57,7 @@ export async function initializeBrowserApplicationShell({
     },
     setPageContext(nextContext) {
       shell.pageContext = { ...shell.pageContext, ...nextContext };
-      setText(el("shellContextTitle", doc), shell.pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaign Directory");
+      setText(el("shellContextTitle", doc), shell.pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaigns");
       if (shell.eventDelivery) {
         void shell.eventDelivery.updateCampaignContext(shell.pageContext.campaignId || "");
       }
@@ -62,6 +69,17 @@ export async function initializeBrowserApplicationShell({
       setValue(el("identityNickname", doc), identity.nickname);
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
+    },
+    openShellMenu() {
+      const nextOpen = !el("shellPanel", doc)?.hidden;
+      setPanelContent(doc, `
+        <div class="shell-panel-card">
+          <p class="eyebrow">Shell</p>
+          <p>Campaigns, updates, profile, and diagnostics remain shell-owned controls.</p>
+        </div>
+      `, !nextOpen);
+      const menu = el("shellMenu", doc);
+      if (menu) menu.setAttribute("aria-expanded", String(!nextOpen));
     },
     openCampaignCreator() {
       const dialog = el("createCampaignDialog", doc);
@@ -89,7 +107,7 @@ export async function initializeBrowserApplicationShell({
   shell.eventDelivery = eventDelivery;
   eventDelivery.connect();
 
-  setText(el("shellContextTitle", doc), pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaign Directory");
+  setText(el("shellContextTitle", doc), pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaigns");
   setText(el("shellDeviceStatus", doc), "Device ready");
   setText(el("shellUpdates", doc), "Updates");
   setText(el("shellProfile", doc), identity.nickname);
@@ -108,6 +126,8 @@ export async function initializeBrowserApplicationShell({
   if (shellDeviceStatus) shellDeviceStatus.addEventListener("click", () => shell.pageError("Local storage ready."));
   const shellError = el("shellError", doc);
   if (shellError) shellError.addEventListener("click", () => shell.pageError("No shell errors recorded."));
+  const shellMenu = el("shellMenu", doc);
+  if (shellMenu) shellMenu.addEventListener("click", () => shell.openShellMenu());
   shell.setConnectionState("connected");
 
   if (typeof pageController === "function") {
