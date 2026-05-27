@@ -105,6 +105,50 @@ main {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.shell-icon-button {
+  width: 32px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.shell-icon-button::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+}
+
+.shell-icon-bell::before {
+  mask-image: url("/assets/icon/bell.svg");
+  -webkit-mask-image: url("/assets/icon/bell.svg");
+}
+
+.shell-icon-alert::before {
+  mask-image: url("/assets/icon/circle-alert.svg");
+  -webkit-mask-image: url("/assets/icon/circle-alert.svg");
+}
+
+.shell-icon-database::before {
+  mask-image: url("/assets/icon/database.svg");
+  -webkit-mask-image: url("/assets/icon/database.svg");
+}
+
+.shell-icon-user::before {
+  mask-image: url("/assets/icon/user.svg");
+  -webkit-mask-image: url("/assets/icon/user.svg");
+}
+
+.shell-icon-menu::before {
+  mask-image: url("/assets/icon/menu.svg");
+  -webkit-mask-image: url("/assets/icon/menu.svg");
+}
+
 .shell-chip-quiet {
   color: var(--muted);
 }

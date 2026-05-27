@@ -56,12 +56,14 @@ export async function initializeBrowserApplicationShell({
     errorCount: 0,
     pageContext: { ...pageContext },
     pageError(message) {
-      setText(el("shellError", doc), shell.errorCount ? `Errors ${shell.errorCount}` : "Errors 0");
+      const shellError = el("shellError", doc);
+      if (shellError) shellError.setAttribute("aria-label", shell.errorCount ? `Errors ${shell.errorCount}` : "Errors 0");
       if (message) setText(el("shellConnectionState", doc), message);
     },
     recordShellError(message) {
       shell.errorCount += 1;
-      setText(el("shellError", doc), `Errors ${shell.errorCount}`);
+      const shellError = el("shellError", doc);
+      if (shellError) shellError.setAttribute("aria-label", `Errors ${shell.errorCount}`);
       if (message) setText(el("shellConnectionState", doc), message);
     },
     setConnectionState(state) {
@@ -126,9 +128,12 @@ export async function initializeBrowserApplicationShell({
   eventDelivery.connect();
 
   setText(el("shellContextTitle", doc), pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaigns");
-  setText(el("shellDeviceStatus", doc), "Device ready");
-  setText(el("shellProfile", doc), identity.nickname);
-  setText(el("shellError", doc), "Errors 0");
+  const shellDeviceStatus = el("shellDeviceStatus", doc);
+  if (shellDeviceStatus) shellDeviceStatus.setAttribute("aria-label", "Device ready");
+  const shellProfile = el("shellProfile", doc);
+  if (shellProfile) shellProfile.setAttribute("aria-label", identity.nickname);
+  const shellError = el("shellError", doc);
+  if (shellError) shellError.setAttribute("aria-label", "Errors 0");
 
   const footerCampaigns = el("footerCampaigns", doc);
   if (footerCampaigns) footerCampaigns.addEventListener("click", () => { locationApi.href = "/"; });
@@ -136,13 +141,10 @@ export async function initializeBrowserApplicationShell({
   if (footerUpdates) footerUpdates.addEventListener("click", () => openDeveloperPanel(doc));
   const footerProfile = el("footerProfile", doc);
   if (footerProfile) footerProfile.addEventListener("click", () => shell.openIdentityEditor());
-  const shellProfile = el("shellProfile", doc);
   if (shellProfile) shellProfile.addEventListener("click", () => shell.openIdentityEditor());
   const shellUpdates = el("shellUpdates", doc);
   if (shellUpdates) shellUpdates.addEventListener("click", () => openDeveloperPanel(doc));
-  const shellDeviceStatus = el("shellDeviceStatus", doc);
   if (shellDeviceStatus) shellDeviceStatus.addEventListener("click", () => setPanelContent(doc, "<p>Local storage ready.</p>", true));
-  const shellError = el("shellError", doc);
   if (shellError) shellError.addEventListener("click", () => openDeveloperPanel(doc));
   const shellMenu = el("shellMenu", doc);
   if (shellMenu) shellMenu.addEventListener("click", () => shell.openShellMenu());
@@ -161,5 +163,5 @@ export function updateShellIdentity(shell, nextIdentity) {
   shell.identity.nickname = nextIdentity.nickname || createDefaultNickname(shell.identity.uuid);
   saveLocalIdentity(shell.identity, shell.storage);
   const profile = el("shellProfile", shell.document);
-  if (profile) profile.textContent = shell.identity.nickname;
+  if (profile) profile.setAttribute("aria-label", shell.identity.nickname);
 }

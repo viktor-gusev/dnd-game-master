@@ -64,8 +64,10 @@ test("shared shell resolves identity and tab identity before page controllers st
   assert.equal(pageStarted, true);
   assert.equal(shell.tabIdentityId, "tab-1");
   assert.equal(document.getElementById("shellContextTitle").textContent, "Campaigns");
-  assert.equal(document.getElementById("shellError").textContent, "Errors 0");
-  assert.equal(document.getElementById("shellDeviceStatus").textContent, "Device ready");
+  assert.equal(document.getElementById("shellError").textContent, "");
+  assert.equal(document.getElementById("shellError").attributes["aria-label"], "Errors 0");
+  assert.equal(document.getElementById("shellDeviceStatus").textContent, "");
+  assert.equal(document.getElementById("shellDeviceStatus").attributes["aria-label"], "Device ready");
 });
 
 test("campaign directory is list-first, hides identity edit from page actions, and opens details through the shell", async () => {

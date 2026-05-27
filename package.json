@@ -65,6 +65,7 @@
     "@teqfw/di": "*"
   },
   "devDependencies": {
-    "@types/node": "*"
+    "@types/node": "*",
+    "lucide-static": "^1.16.0"
   }
 }
