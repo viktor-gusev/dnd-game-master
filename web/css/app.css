@@ -33,10 +33,62 @@ body {
 main {
   width: min(1120px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 40px 0 56px;
+  padding: 16px 0 88px;
 }
 
 .page-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.application-header,
+.application-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.application-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 14px 16px;
+}
+
+.shell-context,
+.shell-status-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shell-context strong {
+  color: var(--text);
+}
+
+.shell-pill,
+.application-header button,
+.application-footer button {
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+
+.shell-pill {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.application-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  justify-content: space-evenly;
+  padding: 10px 12px;
+}
+
+.page-runtime-area {
   display: grid;
   gap: 18px;
 }
@@ -350,6 +402,14 @@ a {
 }
 
 @media (min-width: 720px) {
+  main {
+    padding-bottom: 40px;
+  }
+
+  .application-footer {
+    display: none;
+  }
+
   .hero-grid {
     grid-template-columns: minmax(0, 1.4fr) minmax(16rem, 0.8fr);
     align-items: start;

@@ -50,6 +50,7 @@ export async function initializeBrowserApplicationShell({
     },
     setPageContext(nextContext) {
       shell.pageContext = { ...shell.pageContext, ...nextContext };
+      setText(el("shellContextTitle", doc), shell.pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaign Directory");
       if (shell.eventDelivery) {
         void shell.eventDelivery.updateCampaignContext(shell.pageContext.campaignId || "");
       }
@@ -88,7 +89,25 @@ export async function initializeBrowserApplicationShell({
   shell.eventDelivery = eventDelivery;
   eventDelivery.connect();
 
-  setText(el("shellIdentity", doc), `${identity.nickname} · ${identity.uuid}`);
+  setText(el("shellContextTitle", doc), pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaign Directory");
+  setText(el("shellDeviceStatus", doc), "Device ready");
+  setText(el("shellUpdates", doc), "Updates");
+  setText(el("shellProfile", doc), identity.nickname);
+  setText(el("shellError", doc), "Errors 0");
+  const footerCampaigns = el("footerCampaigns", doc);
+  if (footerCampaigns) footerCampaigns.addEventListener("click", () => { locationApi.href = "/"; });
+  const footerUpdates = el("footerUpdates", doc);
+  if (footerUpdates) footerUpdates.addEventListener("click", () => shell.pageError("Updates available."));
+  const footerProfile = el("footerProfile", doc);
+  if (footerProfile) footerProfile.addEventListener("click", () => shell.openIdentityEditor());
+  const shellProfile = el("shellProfile", doc);
+  if (shellProfile) shellProfile.addEventListener("click", () => shell.openIdentityEditor());
+  const shellUpdates = el("shellUpdates", doc);
+  if (shellUpdates) shellUpdates.addEventListener("click", () => shell.pageError("Updates available."));
+  const shellDeviceStatus = el("shellDeviceStatus", doc);
+  if (shellDeviceStatus) shellDeviceStatus.addEventListener("click", () => shell.pageError("Local storage ready."));
+  const shellError = el("shellError", doc);
+  if (shellError) shellError.addEventListener("click", () => shell.pageError("No shell errors recorded."));
   shell.setConnectionState("connected");
 
   if (typeof pageController === "function") {

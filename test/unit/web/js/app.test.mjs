@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { initializeBrowserApplicationShell } from "../../../../web/js/browser-shell.js";
 import { initializeCampaignDirectoryApp } from "../../../../web/js/campaign-directory.js";
@@ -47,6 +48,9 @@ test("shared shell resolves identity and tab identity before page controllers st
 
   assert.equal(pageStarted, true);
   assert.equal(shell.tabIdentityId, "tab-1");
+  assert.equal(document.getElementById("shellContextTitle").textContent, "Campaign Directory");
+  assert.equal(document.getElementById("shellError").textContent, "Errors 0");
+  assert.equal(document.getElementById("shellDeviceStatus").textContent, "Device ready");
 });
 
 test("campaign directory declares campaign directory context without campaignId and opens details through a popup surface", async () => {
@@ -92,4 +96,18 @@ test("campaign workspace declares campaign workspace context with campaignId", a
   await initializeCampaignWorkspace(shell);
   assert.deepEqual(shell.pageContext, { kind: "campaign workspace", campaignId: "campaign-1" });
   assert.equal(document.getElementById("campaignTitle").textContent, "Friday tavern run");
+});
+
+test("browser entry pages contain the shared shell frame and dedicated page runtime area", async () => {
+  const [directoryHtml, workspaceHtml] = await Promise.all([
+    readFile(new URL("../../../../web/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../../../../web/campaign.html", import.meta.url), "utf8"),
+  ]);
+
+  for (const html of [directoryHtml, workspaceHtml]) {
+    assert.match(html, /class="application-header panel"/);
+    assert.match(html, /class="page-runtime-area"/);
+    assert.match(html, /class="application-footer panel"/);
+    assert.doesNotMatch(html, /shellIdentity/);
+  }
 });

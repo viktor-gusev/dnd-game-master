@@ -4,10 +4,11 @@ import { readFile } from "node:fs/promises";
 
 const cssUrl = new URL("../../../../web/css/app.css", import.meta.url);
 
-test("chat panel is vertically bounded and message list scrolls", async () => {
+test("application shell stays compact and mobile footer hides on desktop", async () => {
   const source = await readFile(cssUrl, "utf8");
 
-  assert.match(source, /\.chat-panel\s*\{[\s\S]*max-height:\s*min\(72vh,\s*44rem\);[\s\S]*overflow:\s*hidden;/);
-  assert.match(source, /#messages\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*min-height:\s*0;/);
-  assert.match(source, /@media \(min-width:\s*720px\)\s*\{[\s\S]*\.chat-panel\s*\{[\s\S]*max-height:\s*min\(76vh,\s*48rem\);[\s\S]*\}/);
+  assert.match(source, /\.application-header\s*\{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;[\s\S]*padding:\s*14px 16px;/);
+  assert.match(source, /\.application-footer\s*\{[\s\S]*position:\s*sticky;[\s\S]*bottom:\s*0;[\s\S]*padding:\s*10px 12px;/);
+  assert.match(source, /\.page-runtime-area\s*\{[\s\S]*display:\s*grid;[\s\S]*gap:\s*18px;/);
+  assert.match(source, /@media \(min-width:\s*720px\)\s*\{[\s\S]*\.application-footer\s*\{[\s\S]*display:\s*none;/);
 });

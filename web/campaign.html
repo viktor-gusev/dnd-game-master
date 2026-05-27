@@ -8,99 +8,111 @@
   </head>
   <body class="workspace-page">
     <main id="workspaceShell" class="page-shell workspace-shell">
-      <section class="shell-bar panel">
-        <div>
+      <header class="application-header panel">
+        <div class="shell-context">
           <p class="eyebrow">Browser Shell</p>
-          <strong id="shellIdentity">Resolving identity…</strong>
+          <strong id="shellContextTitle">Campaign Workspace</strong>
         </div>
-        <div class="shell-bar-meta">
-          <span id="shellConnectionState">connecting</span>
-          <span id="shellError" aria-live="polite"></span>
-        </div>
-      </section>
-      <header class="hero panel hero-grid">
-        <div class="hero-copy">
-          <p class="eyebrow">Campaign Workspace</p>
-          <h1 id="campaignTitle">Loading campaign…</h1>
-          <p id="campaignSubtitle">Opening selected campaign.</p>
-          <p id="status" class="status-line">Preparing workspace.</p>
-          <p><a id="backToDirectory" href="/">Back to Campaign Directory</a></p>
-        </div>
-        <div class="hero-aside">
-          <div class="stat-card">
-            <span class="stat-label">Working set</span>
-            <strong>Brief, sheets, drafts</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">Reference</span>
-            <strong>Events and credits</strong>
-          </div>
+        <div class="shell-status-cluster">
+          <button id="shellUpdates" type="button">Updates</button>
+          <button id="shellProfile" type="button">Profile</button>
+          <button id="shellDeviceStatus" type="button">Device ready</button>
+          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
+          <span id="shellConnectionState" class="shell-pill">connecting</span>
         </div>
       </header>
 
-      <section class="workspace-grid">
-        <section class="panel workspace-primary">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Campaign Brief</p>
-              <h2>Brief</h2>
+      <section id="pageRuntimeArea" class="page-runtime-area">
+        <section class="hero panel hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">Campaign Workspace</p>
+            <h1 id="campaignTitle">Loading campaign…</h1>
+            <p id="campaignSubtitle">Opening selected campaign.</p>
+            <p id="status" class="status-line">Preparing workspace.</p>
+            <p><a id="backToDirectory" href="/">Back to Campaign Directory</a></p>
+          </div>
+          <div class="hero-aside">
+            <div class="stat-card">
+              <span class="stat-label">Working set</span>
+              <strong>Brief, sheets, drafts</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Reference</span>
+              <strong>Events and credits</strong>
             </div>
           </div>
-          <form id="briefForm" class="card-form surface-card">
-            <input name="title" placeholder="Campaign title">
-            <textarea name="summary" placeholder="Brief summary"></textarea>
-            <textarea name="planning" placeholder="Planning"></textarea>
-            <textarea name="recap" placeholder="Recap"></textarea>
-            <button type="submit">Save brief</button>
-          </form>
-          <pre id="brief" class="data-panel"></pre>
         </section>
 
-        <aside class="workspace-sidebar">
-          <section class="panel">
-            <p class="eyebrow">Character Sheets</p>
-            <h2>Sheets</h2>
-            <form id="sheetForm" class="card-form surface-card">
-              <input name="title" placeholder="Character sheet title">
-              <textarea name="content" placeholder="Character sheet content"></textarea>
-              <button type="submit">Create sheet</button>
-            </form>
-          </section>
-
-          <section class="panel">
-            <p class="eyebrow">AI Drafts</p>
-            <h2>Drafts</h2>
-            <form id="draftForm" class="card-form surface-card">
-              <input name="title" placeholder="Draft title">
-              <textarea name="content" placeholder="Draft content"></textarea>
-              <button type="submit">Create draft</button>
-            </form>
-          </section>
-
-          <section class="panel">
+        <section class="workspace-grid">
+          <section class="panel workspace-primary">
             <div class="section-header">
               <div>
-                <p class="eyebrow">Event Feed</p>
-                <h2>Events</h2>
+                <p class="eyebrow">Campaign Brief</p>
+                <h2>Brief</h2>
               </div>
-              <button id="refreshButton" type="button">Refresh</button>
             </div>
-            <pre id="events" class="data-panel"></pre>
+            <form id="briefForm" class="card-form surface-card">
+              <input name="title" placeholder="Campaign title">
+              <textarea name="summary" placeholder="Brief summary"></textarea>
+              <textarea name="planning" placeholder="Planning"></textarea>
+              <textarea name="recap" placeholder="Recap"></textarea>
+              <button type="submit">Save brief</button>
+            </form>
+            <pre id="brief" class="data-panel"></pre>
           </section>
 
-          <section class="panel">
-            <p class="eyebrow">Credits</p>
-            <h2>Credits</h2>
-            <pre id="credits" class="data-panel"></pre>
-          </section>
+          <aside class="workspace-sidebar">
+            <section class="panel">
+              <p class="eyebrow">Character Sheets</p>
+              <h2>Sheets</h2>
+              <form id="sheetForm" class="card-form surface-card">
+                <input name="title" placeholder="Character sheet title">
+                <textarea name="content" placeholder="Character sheet content"></textarea>
+                <button type="submit">Create sheet</button>
+              </form>
+            </section>
 
-          <section class="panel">
-            <p class="eyebrow">Drafts</p>
-            <h2>Draft list</h2>
-            <pre id="drafts" class="data-panel"></pre>
-          </section>
-        </aside>
+            <section class="panel">
+              <p class="eyebrow">AI Drafts</p>
+              <h2>Drafts</h2>
+              <form id="draftForm" class="card-form surface-card">
+                <input name="title" placeholder="Draft title">
+                <textarea name="content" placeholder="Draft content"></textarea>
+                <button type="submit">Create draft</button>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Event Feed</p>
+                  <h2>Events</h2>
+                </div>
+                <button id="refreshButton" type="button">Refresh</button>
+              </div>
+              <pre id="events" class="data-panel"></pre>
+            </section>
+
+            <section class="panel">
+              <p class="eyebrow">Credits</p>
+              <h2>Credits</h2>
+              <pre id="credits" class="data-panel"></pre>
+            </section>
+
+            <section class="panel">
+              <p class="eyebrow">Drafts</p>
+              <h2>Draft list</h2>
+              <pre id="drafts" class="data-panel"></pre>
+            </section>
+          </aside>
+        </section>
       </section>
+
+      <footer class="application-footer panel">
+        <button id="footerCampaigns" type="button">Campaigns</button>
+        <button id="footerUpdates" type="button">Updates</button>
+        <button id="footerProfile" type="button">Profile</button>
+      </footer>
     </main>
     <script type="module" src="/js/session-workspace.js"></script>
   </body>

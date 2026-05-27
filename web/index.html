@@ -8,50 +8,62 @@
   </head>
   <body class="directory-page">
     <main class="page-shell directory-shell">
-      <section class="shell-bar panel">
-        <div>
+      <header class="application-header panel">
+        <div class="shell-context">
           <p class="eyebrow">Browser Shell</p>
-          <strong id="shellIdentity">Resolving identity…</strong>
+          <strong id="shellContextTitle">Campaign Directory</strong>
         </div>
-        <div class="shell-bar-meta">
-          <span id="shellConnectionState">connecting</span>
-          <span id="shellError" aria-live="polite"></span>
-        </div>
-      </section>
-      <header class="hero panel hero-grid">
-        <div class="hero-copy">
-          <p class="eyebrow">Campaign Directory</p>
-          <h1>DND Game Master</h1>
-          <p>Choose a campaign, open the workspace when you are ready, and use the secondary surfaces for details, identity, or creation.</p>
-          <p id="status" class="status-line">Preparing browser-local identity.</p>
-        </div>
-        <div class="hero-aside">
-          <div class="stat-card">
-            <span class="stat-label">Primary flow</span>
-            <strong>List, inspect, open</strong>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">Secondary flow</span>
-            <strong>Identity, create, refresh</strong>
-          </div>
+        <div class="shell-status-cluster">
+          <button id="shellUpdates" type="button">Updates</button>
+          <button id="shellProfile" type="button">Profile</button>
+          <button id="shellDeviceStatus" type="button">Device ready</button>
+          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
+          <span id="shellConnectionState" class="shell-pill">connecting</span>
         </div>
       </header>
 
-      <section class="panel directory-main">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Available campaigns</p>
-            <h2>Campaign Directory</h2>
-            <p id="campaignDirectorySummary">Loading campaigns.</p>
+      <section id="pageRuntimeArea" class="page-runtime-area">
+        <section class="panel hero hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">Campaign Directory</p>
+            <h1>DND Game Master</h1>
+            <p>Choose a campaign, open the workspace when you are ready, and use the secondary surfaces for details, identity, or creation.</p>
+            <p id="status" class="status-line">Preparing browser-local identity.</p>
           </div>
-          <div class="section-actions">
-            <button id="openIdentityEditor" type="button" onclick="document.getElementById('identityDialog').showModal()">Edit identity</button>
-            <button id="openCreateCampaign" type="button" onclick="document.getElementById('createCampaignDialog').showModal()">Create campaign</button>
-            <button id="refreshCampaigns" type="button">Refresh list</button>
+          <div class="hero-aside">
+            <div class="stat-card">
+              <span class="stat-label">Primary flow</span>
+              <strong>List, inspect, open</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Secondary flow</span>
+              <strong>Identity, create, refresh</strong>
+            </div>
           </div>
-        </div>
-        <div id="campaignDirectory" class="campaign-directory"></div>
+        </section>
+
+        <section class="panel directory-main">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Available campaigns</p>
+              <h2>Campaign Directory</h2>
+              <p id="campaignDirectorySummary">Loading campaigns.</p>
+            </div>
+            <div class="section-actions">
+              <button id="openIdentityEditor" type="button" onclick="document.getElementById('identityDialog').showModal()">Edit identity</button>
+              <button id="openCreateCampaign" type="button" onclick="document.getElementById('createCampaignDialog').showModal()">Create campaign</button>
+              <button id="refreshCampaigns" type="button">Refresh list</button>
+            </div>
+          </div>
+          <div id="campaignDirectory" class="campaign-directory"></div>
+        </section>
       </section>
+
+      <footer class="application-footer panel">
+        <button id="footerCampaigns" type="button">Campaigns</button>
+        <button id="footerUpdates" type="button">Updates</button>
+        <button id="footerProfile" type="button">Profile</button>
+      </footer>
 
       <dialog id="campaignDetailsDialog" class="shell-dialog">
         <div id="selectedCampaignDetail" class="campaign-detail"></div>
