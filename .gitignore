@@ -3,8 +3,8 @@
 /.vscode/
 /**/.env
 /**/node_modules/
-/**/output.md
-/**/output.zip
+/**/output*.md
+/**/output*.zip
 /**/tmp/
 /ctx/
 /var/work/

@@ -26,13 +26,16 @@ test("campaign workspace loads campaign data and shows durable projections", asy
   await initializeCampaignWorkspace({
     document,
     storage,
-    fetchImpl: async (path) => {
+    locationApi: document.location,
+    api: async (path) => {
       fetchCalls.push(path);
-      if (path === "/api/campaigns/campaign-1") return { ok: true, headers: { get: () => "application/json" }, async json() { return { ok: true, data: { campaign: { campaignId: "campaign-1", title: "Friday tavern run", gm: { nickname: "Alice" } }, participants: [{ identityId: "1" }], brief: { title: "Friday tavern run" }, events: [], aiDrafts: [], credits: [] } }; } };
-      if (path === "/api/campaigns/campaign-2") return { ok: true, headers: { get: () => "application/json" }, async json() { return { ok: true, data: { campaign: { campaignId: "campaign-2", title: "Another game", gm: { nickname: "Alice" }, brief: { title: "Nested title", summary: "Nested brief" } }, participants: [{ identityId: "1" }], events: [], aiDrafts: [], credits: [] } }; } };
-      if (path === "/api/event-delivery/context") return { ok: true, headers: { get: () => "application/json" }, async json() { return { ok: true, data: { tabIdentityId: "tab-1", campaignId: "campaign-1" } }; } };
+      if (path === "/api/campaigns/campaign-1") return { ok: true, data: { campaign: { campaignId: "campaign-1", title: "Friday tavern run", gm: { nickname: "Alice" } }, participants: [{ identityId: "1" }], brief: { title: "Friday tavern run" }, events: [], aiDrafts: [], credits: [] } };
+      if (path === "/api/campaigns/campaign-2") return { ok: true, data: { campaign: { campaignId: "campaign-2", title: "Another game", gm: { nickname: "Alice" }, brief: { title: "Nested title", summary: "Nested brief" } }, participants: [{ identityId: "1" }], events: [], aiDrafts: [], credits: [] } };
+      if (path === "/api/event-delivery/context") return { ok: true, data: { tabIdentityId: "tab-1", campaignId: "campaign-1" } };
       throw new Error(`Unexpected fetch path: ${path}`);
     },
+    setPageContext() {},
+    pageError() {},
   });
 
   assert.equal(document.getElementById("campaignTitle").textContent, "Friday tavern run");

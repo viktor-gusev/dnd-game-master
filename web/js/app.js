@@ -1,1 +1,1 @@
-export { initializeDirectoryApp } from "./directory.js";
+export { initializeCampaignDirectoryApp as initializeDirectoryApp } from "./campaign-directory.js";
