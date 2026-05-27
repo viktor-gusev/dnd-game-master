@@ -9,45 +9,40 @@
   <body class="workspace-page">
     <main id="workspaceShell" class="page-shell workspace-shell">
       <header class="application-header" aria-label="Application Header">
-        <div class="shell-context">
-          <strong id="shellContextTitle">Campaigns</strong>
-          <span class="shell-pill" id="shellConnectionState">connecting</span>
-          <button id="shellUpdates" type="button">Updates</button>
-          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
+        <div class="shell-row shell-row-primary">
+          <strong id="shellContextTitle" class="shell-title">Campaigns</strong>
+          <span id="shellConnectionState" class="shell-chip shell-chip-quiet">connecting</span>
+          <button id="shellUpdates" type="button" class="shell-chip shell-chip-action">Updates</button>
+          <button id="shellError" type="button" class="shell-chip shell-chip-critical" aria-live="polite">Errors 0</button>
         </div>
-        <div class="shell-status-cluster">
-          <button id="shellDeviceStatus" type="button">Device ready</button>
-          <button id="shellProfile" type="button">Profile</button>
-          <button id="shellMenu" type="button" aria-expanded="false" aria-controls="shellPanel">Menu</button>
+        <div class="shell-row shell-row-secondary">
+          <button id="shellDeviceStatus" type="button" class="shell-chip shell-chip-quiet">Device ready</button>
+          <button id="shellProfile" type="button" class="shell-chip shell-chip-action">Alex Work</button>
+          <button id="shellMenu" type="button" class="shell-chip shell-chip-action" aria-expanded="false" aria-controls="shellPanel">Menu</button>
         </div>
       </header>
 
       <section id="pageRuntimeArea" class="page-runtime-area">
-        <section class="workspace-grid">
-          <section class="workspace-primary">
-            <div class="section-header">
-              <div>
-                <p class="eyebrow">Campaign Workspace</p>
-                <h1 id="campaignTitle">Loading campaign…</h1>
-                <p id="campaignSubtitle">Opening selected campaign.</p>
-              </div>
-              <a id="backToDirectory" href="/">Back to Campaign Directory</a>
+        <section class="workspace-main">
+          <div class="section-header workspace-header">
+            <div>
+              <h1 id="campaignTitle">Loading campaign…</h1>
+              <p id="campaignSubtitle">Opening selected campaign.</p>
             </div>
-            <p id="status" class="status-line">Preparing workspace.</p>
-            <form id="briefForm" class="card-form surface-card">
-              <input name="title" placeholder="Campaign title">
-              <textarea name="summary" placeholder="Brief summary"></textarea>
-              <textarea name="planning" placeholder="Planning"></textarea>
-              <textarea name="recap" placeholder="Recap"></textarea>
-              <button type="submit">Save brief</button>
-            </form>
-            <pre id="brief" class="data-panel"></pre>
-          </section>
-
-          <aside class="workspace-sidebar">
+            <a id="backToDirectory" class="shell-link" href="/">Campaigns</a>
+          </div>
+          <p id="status" class="status-line">Preparing workspace.</p>
+          <form id="briefForm" class="card-form surface-card workspace-form">
+            <input name="title" placeholder="Campaign title">
+            <textarea name="summary" placeholder="Brief summary"></textarea>
+            <textarea name="planning" placeholder="Planning"></textarea>
+            <textarea name="recap" placeholder="Recap"></textarea>
+            <button type="submit">Save brief</button>
+          </form>
+          <pre id="brief" class="data-panel"></pre>
+          <section class="workspace-panels">
             <section class="panel">
-              <p class="eyebrow">Character Sheets</p>
-              <h2>Sheets</h2>
+              <h2>Character Sheets</h2>
               <form id="sheetForm" class="card-form surface-card">
                 <input name="title" placeholder="Character sheet title">
                 <textarea name="content" placeholder="Character sheet content"></textarea>
@@ -56,8 +51,7 @@
             </section>
 
             <section class="panel">
-              <p class="eyebrow">AI Drafts</p>
-              <h2>Drafts</h2>
+              <h2>AI Drafts</h2>
               <form id="draftForm" class="card-form surface-card">
                 <input name="title" placeholder="Draft title">
                 <textarea name="content" placeholder="Draft content"></textarea>
@@ -67,27 +61,22 @@
 
             <section class="panel">
               <div class="section-header">
-                <div>
-                  <p class="eyebrow">Event Feed</p>
-                  <h2>Events</h2>
-                </div>
-                <button id="refreshButton" type="button">Refresh</button>
+                <h2>Events</h2>
+                <button id="refreshButton" type="button" class="shell-chip shell-chip-action">Refresh</button>
               </div>
               <pre id="events" class="data-panel"></pre>
             </section>
 
             <section class="panel">
-              <p class="eyebrow">Credits</p>
               <h2>Credits</h2>
               <pre id="credits" class="data-panel"></pre>
             </section>
 
             <section class="panel">
-              <p class="eyebrow">Drafts</p>
               <h2>Draft list</h2>
               <pre id="drafts" class="data-panel"></pre>
             </section>
-          </aside>
+          </section>
         </section>
       </section>
 

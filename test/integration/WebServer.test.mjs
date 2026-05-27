@@ -13,7 +13,7 @@ test("web server serves the campaign directory and campaign workspace shells", a
   try {
     const home = await waitFor(`http://127.0.0.1:${port}/`);
     const homeHtml = await home.text();
-    assert.match(homeHtml, /Campaign Directory/);
+    assert.match(homeHtml, /Campaigns/);
     const workspace = await waitFor(`http://127.0.0.1:${port}/campaign.html?campaignId=campaign-1`);
     const workspaceHtml = await workspace.text();
     assert.match(workspaceHtml, /Campaign Workspace/);

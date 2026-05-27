@@ -9,29 +9,27 @@
   <body class="directory-page">
     <main class="page-shell directory-shell">
       <header class="application-header" aria-label="Application Header">
-        <div class="shell-context">
-          <strong id="shellContextTitle">Campaigns</strong>
-          <span class="shell-pill" id="shellConnectionState">connecting</span>
-          <button id="shellUpdates" type="button">Updates</button>
-          <button id="shellError" type="button" aria-live="polite">Errors 0</button>
+        <div class="shell-row shell-row-primary">
+          <strong id="shellContextTitle" class="shell-title">Campaigns</strong>
+          <span id="shellConnectionState" class="shell-chip shell-chip-quiet">connecting</span>
+          <button id="shellUpdates" type="button" class="shell-chip shell-chip-action">Updates</button>
+          <button id="shellError" type="button" class="shell-chip shell-chip-critical" aria-live="polite">Errors 0</button>
         </div>
-        <div class="shell-status-cluster">
-          <button id="shellDeviceStatus" type="button">Device ready</button>
-          <button id="shellProfile" type="button">Profile</button>
-          <button id="shellMenu" type="button" aria-expanded="false" aria-controls="shellPanel">Menu</button>
+        <div class="shell-row shell-row-secondary">
+          <button id="shellDeviceStatus" type="button" class="shell-chip shell-chip-quiet">Device ready</button>
+          <button id="shellProfile" type="button" class="shell-chip shell-chip-action">Alex Work</button>
+          <button id="shellMenu" type="button" class="shell-chip shell-chip-action" aria-expanded="false" aria-controls="shellPanel">Menu</button>
         </div>
       </header>
 
       <section id="pageRuntimeArea" class="page-runtime-area">
         <section class="directory-main">
-          <div class="section-header">
+          <div class="section-header directory-header">
             <div>
-              <p class="eyebrow">Campaign Directory</p>
               <h1>Campaigns</h1>
               <p id="campaignDirectorySummary">Loading campaigns.</p>
             </div>
             <div class="section-actions">
-              <button id="openIdentityEditor" type="button">Edit identity</button>
               <button id="openCreateCampaign" type="button">Create campaign</button>
               <button id="refreshCampaigns" type="button">Refresh list</button>
             </div>

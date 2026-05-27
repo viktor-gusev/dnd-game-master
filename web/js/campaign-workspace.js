@@ -7,6 +7,11 @@ function formField(form, name) {
   return field && typeof field === "object" && "value" in field ? field : null;
 }
 
+function formatParticipantCount(count = 0) {
+  const value = Number(count) || 0;
+  return `${value} participant${value === 1 ? "" : "s"}`;
+}
+
 export async function initializeCampaignWorkspace(shell) {
   const doc = shell.document;
   const params = new URL(shell.locationApi?.href || doc.location?.href || "http://localhost/campaign.html").searchParams;
@@ -25,10 +30,10 @@ export async function initializeCampaignWorkspace(shell) {
 
   shell.setPageContext({ kind: "campaign workspace", campaignId });
   if (!campaignId) {
-    if (status) status.textContent = "Campaign id is missing. Return to the Campaign Directory.";
+    if (status) status.textContent = "Campaign id is missing. Return to Campaigns.";
     return;
   }
-  if (status) status.textContent = "Preparing workspace.";
+  if (status) status.textContent = "Loading workspace.";
   if (backLink) backLink.setAttribute("href", "/");
 
   async function load() {
@@ -37,7 +42,7 @@ export async function initializeCampaignWorkspace(shell) {
     const campaign = response.data.campaign;
     const loadedBrief = response.data.brief || {};
     if (title) title.textContent = campaign.title;
-    if (subtitle) subtitle.textContent = `GM: ${campaign.gm?.nickname || "Unknown"} · Participants: ${response.data.participants.length}`;
+    if (subtitle) subtitle.textContent = `GM ${campaign.gm?.nickname || "Unknown"} · ${formatParticipantCount(response.data.participants.length)}`;
     if (briefForm) {
       const titleField = formField(briefForm, "title");
       const summaryField = formField(briefForm, "summary");
@@ -52,6 +57,7 @@ export async function initializeCampaignWorkspace(shell) {
     if (events) events.textContent = JSON.stringify(response.data.events || [], null, 2);
     if (drafts) drafts.textContent = JSON.stringify(response.data.aiDrafts || [], null, 2);
     if (credits) credits.textContent = JSON.stringify(response.data.credits || [], null, 2);
+    if (status) status.textContent = "Workspace ready.";
   }
 
   if (briefForm) briefForm.addEventListener("submit", async (event) => {
@@ -73,20 +79,37 @@ export async function initializeCampaignWorkspace(shell) {
   if (sheetForm) sheetForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const response = await shell.api(`/api/campaigns/${campaignId}/character-sheets`, { method: "POST", operation: "create-sheet", body: JSON.stringify({ title: formField(form, "title")?.value || "", content: formField(form, "content")?.value || "" }) });
+    const response = await shell.api(`/api/campaigns/${campaignId}/character-sheets`, {
+      method: "POST",
+      operation: "create-sheet",
+      body: JSON.stringify({
+        title: formField(form, "title")?.value || "",
+        content: formField(form, "content")?.value || "",
+      }),
+    });
     if (!response.ok) return shell.pageError(response.error?.message || "Failed to create sheet.");
     await load();
   });
   if (draftForm) draftForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const response = await shell.api(`/api/campaigns/${campaignId}/ai/drafts`, { method: "POST", operation: "create-draft", body: JSON.stringify({ title: formField(form, "title")?.value || "", content: formField(form, "content")?.value || "" }) });
+    const response = await shell.api(`/api/campaigns/${campaignId}/ai/drafts`, {
+      method: "POST",
+      operation: "create-draft",
+      body: JSON.stringify({
+        title: formField(form, "title")?.value || "",
+        content: formField(form, "content")?.value || "",
+      }),
+    });
     if (!response.ok) return shell.pageError(response.error?.message || "Failed to create draft.");
     await load();
   });
 
-  if (el("refreshButton", doc)) el("refreshButton", doc).addEventListener("click", load);
+  const refreshButton = el("refreshButton", doc);
+  if (refreshButton) refreshButton.addEventListener("click", load);
   await load();
 }
 
-if (typeof document !== "undefined") void import("./browser-shell.js").then(({ initializeBrowserApplicationShell }) => initializeBrowserApplicationShell({ pageController: initializeCampaignWorkspace }));
+if (typeof document !== "undefined") {
+  void import("./browser-shell.js").then(({ initializeBrowserApplicationShell }) => initializeBrowserApplicationShell({ pageController: initializeCampaignWorkspace }));
+}

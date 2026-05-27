@@ -1,17 +1,16 @@
 :root {
   color-scheme: dark;
-  --bg: #06111d;
-  --bg-2: #0d1a2b;
-  --panel: rgba(14, 22, 38, 0.88);
-  --panel-strong: rgba(8, 14, 26, 0.96);
+  --bg: #08111c;
+  --bg-2: #111c2d;
+  --panel: rgba(13, 21, 35, 0.92);
+  --panel-strong: rgba(8, 14, 24, 0.98);
   --panel-border: rgba(255, 255, 255, 0.08);
-  --text: #f3f0e8;
-  --muted: #b6bfd3;
-  --accent: #f0b44c;
-  --accent-strong: #ffe0a3;
-  --input: rgba(8, 13, 25, 0.98);
-  --danger: #ff8d8d;
-  --shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+  --text: #f4f1e8;
+  --muted: #b7c0d1;
+  --accent: #ebb65a;
+  --accent-strong: #f5d89a;
+  --danger: #ff9b9b;
+  --shadow: 0 18px 46px rgba(0, 0, 0, 0.24);
 }
 
 * { box-sizing: border-box; }
@@ -19,153 +18,163 @@
 body {
   margin: 0;
   min-height: 100vh;
+  color: var(--text);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   background:
-    radial-gradient(circle at top, rgba(74, 110, 194, 0.28), transparent 32%),
+    radial-gradient(circle at top, rgba(67, 103, 184, 0.26), transparent 34%),
     linear-gradient(180deg, var(--bg-2), var(--bg));
-  color: var(--text);
 }
 
 main {
-  width: min(1120px, calc(100% - 24px));
+  width: min(1140px, calc(100% - 20px));
   margin: 0 auto;
-  padding: 8px 0 74px;
+  padding: 8px 0 88px;
 }
 
 .page-shell {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .application-header,
-.application-footer {
-  position: sticky;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 18px;
-  background: rgba(8, 14, 26, 0.9);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-}
-
-.application-header {
-  top: 0;
-}
-
-.application-footer {
-  bottom: 0;
-  justify-content: space-evenly;
-}
-
-.shell-context,
-.shell-status-cluster {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.shell-context strong {
-  letter-spacing: -0.02em;
-}
-
-.shell-pill,
-.application-header button,
-.application-footer button,
-.section-actions button,
-.section-header > a {
-  padding: 7px 11px;
-  border-radius: 999px;
-}
-
-.shell-pill {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--muted);
-}
-
-.page-runtime-area {
-  display: grid;
-  gap: 12px;
-}
-
+.application-footer,
 .panel,
 .shell-panel,
-.shell-dialog {
-  background: var(--panel);
+.shell-dialog,
+.surface-card,
+.campaign-list-item,
+.data-panel {
   border: 1px solid var(--panel-border);
-  border-radius: 20px;
-  padding: 16px;
+  background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
 }
 
-.shell-panel {
-  position: fixed;
-  inset: auto 12px 76px auto;
-  width: min(22rem, calc(100vw - 24px));
+.application-header {
+  position: sticky;
+  top: 0;
   z-index: 20;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 16px;
 }
 
-.shell-panel-card {
+.shell-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shell-row-primary {
+  justify-content: space-between;
+}
+
+.shell-row-secondary {
+  justify-content: flex-start;
+}
+
+.shell-title {
+  flex: 1 1 auto;
+  min-width: 8rem;
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.shell-chip,
+.application-footer button,
+.section-actions button,
+.shell-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.92rem;
+  text-decoration: none;
+}
+
+.shell-chip {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.shell-chip-quiet {
+  color: var(--muted);
+}
+
+.shell-chip-action,
+.section-actions button,
+.shell-link {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.shell-chip-critical {
+  color: var(--danger);
+  background: rgba(255, 157, 157, 0.1);
+}
+
+.page-runtime-area {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .directory-main,
-.workspace-grid,
-.workspace-primary,
-.workspace-sidebar {
+.workspace-main,
+.workspace-panels {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .section-header {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .section-actions {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
-  justify-content: end;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
-.eyebrow,
-.stat-label {
-  display: block;
+h1,
+h2,
+p {
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.72rem;
-  color: var(--accent-strong);
 }
-
-h1, h2, h3, p { margin-top: 0; }
-
-h1, h2 { margin-bottom: 8px; }
 
 h1 {
-  font-size: clamp(1.8rem, 4.2vw, 3rem);
-  line-height: 1;
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  line-height: 1.05;
   letter-spacing: -0.04em;
 }
 
-.status-line,
+h2 {
+  font-size: 1.05rem;
+}
+
 p,
 label,
 li,
-.campaign-detail p,
+.status-line,
+.campaign-list-item p,
+.panel p,
+.data-panel,
 .shell-panel p {
   color: var(--muted);
+}
+
+.status-line {
+  font-size: 0.95rem;
 }
 
 .campaign-directory,
@@ -175,12 +184,10 @@ li,
 }
 
 .campaign-list-item,
-.campaign-card,
-.data-panel,
+.panel,
 .surface-card,
-.shell-dialog form,
-.panel {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.data-panel,
+.shell-dialog form {
   border-radius: 16px;
   background: var(--panel-strong);
 }
@@ -188,7 +195,28 @@ li,
 .campaign-list-item {
   display: grid;
   gap: 10px;
-  padding: 14px 15px;
+  padding: 14px;
+}
+
+.campaign-empty-state {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(6, 11, 18, 0.72);
+}
+
+.campaign-meta,
+.campaign-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.campaign-meta {
+  font-size: 0.92rem;
 }
 
 form {
@@ -207,81 +235,89 @@ input,
 textarea {
   width: 100%;
   color: var(--text);
-  background: var(--input);
-  border: 1px solid rgba(120, 136, 188, 0.5);
+  background: rgba(4, 9, 17, 0.98);
+  border: 1px solid rgba(125, 140, 175, 0.48);
   border-radius: 14px;
-  padding: 11px 13px;
+  padding: 11px 12px;
 }
 
 textarea {
-  min-height: 7rem;
+  min-height: 6.5rem;
   resize: vertical;
 }
 
 button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  background: var(--accent);
-  color: #1a1305;
-  font-weight: 700;
   cursor: pointer;
 }
 
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 button:hover,
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid var(--accent-strong);
-  outline-offset: 2px;
+.shell-link:hover {
+  filter: brightness(1.05);
 }
 
-a {
-  color: var(--accent-strong);
+.shell-panel {
+  position: fixed;
+  right: 10px;
+  top: auto;
+  bottom: 78px;
+  width: min(22rem, calc(100vw - 20px));
+  padding: 14px;
+  border-radius: 16px;
+  z-index: 30;
+}
+
+.shell-dialog {
+  border-radius: 18px;
+  padding: 0;
+  color: var(--text);
+}
+
+.shell-dialog::backdrop {
+  background: rgba(2, 6, 10, 0.62);
+}
+
+.shell-dialog form {
+  padding: 16px;
 }
 
 .data-panel {
   margin: 0;
-  padding: 14px;
   overflow: auto;
-  min-height: 6rem;
+  padding: 14px;
   white-space: pre-wrap;
-  word-break: break-word;
 }
 
-.workspace-error #status {
-  color: var(--danger);
+.application-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 16px;
 }
 
-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
+.application-footer button {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 @media (min-width: 720px) {
   main {
-    padding-bottom: 24px;
+    padding-bottom: 20px;
+  }
+
+  .application-header {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-row-secondary {
+    justify-content: flex-end;
   }
 
   .application-footer {
     display: none;
-  }
-
-  .workspace-grid {
-    grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
-    align-items: start;
-  }
-
-  .section-header {
-    align-items: center;
   }
 }

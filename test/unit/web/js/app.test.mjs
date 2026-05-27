@@ -7,7 +7,22 @@ import { initializeCampaignDirectoryApp } from "../../../../web/js/campaign-dire
 import { initializeCampaignWorkspace } from "../../../../web/js/campaign-workspace.js";
 
 function makeNode(id = "") {
-  const node = { id, value: "", textContent: "", className: "", disabled: false, attributes: {}, children: [], listeners: new Map(), appendChild(child) { this.children.push(child); return child; }, addEventListener(name, listener) { this.listeners.set(name, listener); }, setAttribute(name, value) { this.attributes[name] = value; }, querySelector() { return null; }, showModal() { this.opened = true; } };
+  const node = {
+    id,
+    value: "",
+    textContent: "",
+    className: "",
+    disabled: false,
+    attributes: {},
+    children: [],
+    listeners: new Map(),
+    appendChild(child) { this.children.push(child); return child; },
+    addEventListener(name, listener) { this.listeners.set(name, listener); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    querySelector() { return null; },
+    showModal() { this.opened = true; },
+    close() { this.closed = true; },
+  };
   Object.defineProperty(node, "innerHTML", { get() { return ""; }, set() { node.children = []; } });
   return node;
 }
@@ -53,7 +68,7 @@ test("shared shell resolves identity and tab identity before page controllers st
   assert.equal(document.getElementById("shellDeviceStatus").textContent, "Device ready");
 });
 
-test("campaign directory declares campaign directory context without campaignId and opens details through a popup surface", async () => {
+test("campaign directory is list-first, hides identity edit from page actions, and opens details through the shell", async () => {
   const document = makeDocument();
   const shellCalls = [];
   const shell = {
@@ -69,14 +84,40 @@ test("campaign directory declares campaign directory context without campaignId 
     },
     setPageContext(context) { this.pageContext = context; },
     pageError(message) { this.lastError = message; },
+    openCampaignDetails() { document.getElementById("campaignDetailsDialog").opened = true; },
   };
 
   await initializeCampaignDirectoryApp(shell);
   assert.deepEqual(shell.pageContext, { kind: "campaign directory", campaignId: "" });
   assert.equal(document.getElementById("campaignDirectory").children.length, 1);
-  await document.getElementById("campaignDirectory").children[0].children[0].children[1].listeners.get("click")();
+  assert.equal(document.getElementById("campaignDirectory").children[0].className, "campaign-list-item");
+  assert.match(document.getElementById("campaignDirectory").children[0].children[0].children[1].children[2].textContent, /Today|Yesterday|May/);
+  await document.getElementById("campaignDirectory").children[0].children[1].children[1].listeners.get("click")();
   assert.equal(document.getElementById("campaignDetailsDialog").opened, true);
   assert.equal(shellCalls[0][0], "/api/campaigns");
+});
+
+test("campaign directory renders a useful empty state with primary create action", async () => {
+  const document = makeDocument();
+  const shell = {
+    document,
+    locationApi: { href: "http://localhost/", assign() {} },
+    confirmImpl: () => true,
+    identity: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+    api: async (path) => {
+      if (path === "/api/campaigns") return { ok: true, data: { campaigns: [] } };
+      return { ok: true, data: {} };
+    },
+    setPageContext(context) { this.pageContext = context; },
+    pageError(message) { this.lastError = message; },
+    openCampaignCreator() { document.getElementById("createCampaignDialog").opened = true; },
+  };
+
+  await initializeCampaignDirectoryApp(shell);
+  assert.equal(document.getElementById("campaignDirectory").children[0].className, "campaign-empty-state");
+  assert.equal(document.getElementById("campaignDirectory").children[0].children[0].textContent, "No campaigns yet");
+  await document.getElementById("campaignDirectory").children[0].children[2].children[0].listeners.get("click")();
+  assert.equal(document.getElementById("createCampaignDialog").opened, true);
 });
 
 test("campaign workspace declares campaign workspace context with campaignId", async () => {
@@ -96,6 +137,8 @@ test("campaign workspace declares campaign workspace context with campaignId", a
   await initializeCampaignWorkspace(shell);
   assert.deepEqual(shell.pageContext, { kind: "campaign workspace", campaignId: "campaign-1" });
   assert.equal(document.getElementById("campaignTitle").textContent, "Friday tavern run");
+  assert.match(document.getElementById("campaignSubtitle").textContent, /GM Alice/);
+  assert.match(document.getElementById("campaignSubtitle").textContent, /1 participant/);
 });
 
 test("browser entry pages contain the shared shell frame and dedicated page runtime area", async () => {
@@ -112,5 +155,6 @@ test("browser entry pages contain the shared shell frame and dedicated page runt
     assert.doesNotMatch(html, /Browser Shell/);
     assert.doesNotMatch(html, /Primary Flow/);
     assert.doesNotMatch(html, /Secondary Flow/);
+    assert.doesNotMatch(html, /Edit identity<\/button>/);
   }
 });

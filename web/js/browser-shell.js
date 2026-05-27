@@ -22,6 +22,11 @@ function setPanelContent(doc, content, open = false) {
   panel.innerHTML = content || "";
 }
 
+function openDeveloperPanel(doc) {
+  const panel = doc.querySelector?.("dgm-dev-error-panel");
+  if (panel) panel.open = true;
+}
+
 export async function initializeBrowserApplicationShell({
   document: doc = globalThis.document,
   storage = globalThis.localStorage,
@@ -48,9 +53,16 @@ export async function initializeBrowserApplicationShell({
     api,
     identity,
     tabIdentityId,
+    errorCount: 0,
     pageContext: { ...pageContext },
     pageError(message) {
-      setText(el("shellError", doc), message || "");
+      setText(el("shellError", doc), shell.errorCount ? `Errors ${shell.errorCount}` : "Errors 0");
+      if (message) setText(el("shellConnectionState", doc), message);
+    },
+    recordShellError(message) {
+      shell.errorCount += 1;
+      setText(el("shellError", doc), `Errors ${shell.errorCount}`);
+      if (message) setText(el("shellConnectionState", doc), message);
     },
     setConnectionState(state) {
       setText(el("shellConnectionState", doc), state || "");
@@ -71,15 +83,21 @@ export async function initializeBrowserApplicationShell({
       else dialog.setAttribute("open", "");
     },
     openShellMenu() {
-      const nextOpen = !el("shellPanel", doc)?.hidden;
-      setPanelContent(doc, `
+      const panel = el("shellPanel", doc);
+      const isOpen = !panel?.hidden;
+      setPanelContent(doc, isOpen ? "" : `
         <div class="shell-panel-card">
-          <p class="eyebrow">Shell</p>
-          <p>Campaigns, updates, profile, and diagnostics remain shell-owned controls.</p>
+          <p class="status-line">Shell controls</p>
+          <button type="button" data-action="diagnostics">Open diagnostics</button>
+          <button type="button" data-action="identity">Edit identity</button>
         </div>
-      `, !nextOpen);
+      `, !isOpen);
       const menu = el("shellMenu", doc);
-      if (menu) menu.setAttribute("aria-expanded", String(!nextOpen));
+      if (menu) menu.setAttribute("aria-expanded", String(!isOpen));
+      if (!isOpen) {
+        panel?.querySelectorAll?.("[data-action='diagnostics']")?.[0]?.addEventListener("click", () => openDeveloperPanel(doc));
+        panel?.querySelectorAll?.("[data-action='identity']")?.[0]?.addEventListener("click", () => shell.openIdentityEditor());
+      }
     },
     openCampaignCreator() {
       const dialog = el("createCampaignDialog", doc);
@@ -109,23 +127,23 @@ export async function initializeBrowserApplicationShell({
 
   setText(el("shellContextTitle", doc), pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaigns");
   setText(el("shellDeviceStatus", doc), "Device ready");
-  setText(el("shellUpdates", doc), "Updates");
   setText(el("shellProfile", doc), identity.nickname);
   setText(el("shellError", doc), "Errors 0");
+
   const footerCampaigns = el("footerCampaigns", doc);
   if (footerCampaigns) footerCampaigns.addEventListener("click", () => { locationApi.href = "/"; });
   const footerUpdates = el("footerUpdates", doc);
-  if (footerUpdates) footerUpdates.addEventListener("click", () => shell.pageError("Updates available."));
+  if (footerUpdates) footerUpdates.addEventListener("click", () => openDeveloperPanel(doc));
   const footerProfile = el("footerProfile", doc);
   if (footerProfile) footerProfile.addEventListener("click", () => shell.openIdentityEditor());
   const shellProfile = el("shellProfile", doc);
   if (shellProfile) shellProfile.addEventListener("click", () => shell.openIdentityEditor());
   const shellUpdates = el("shellUpdates", doc);
-  if (shellUpdates) shellUpdates.addEventListener("click", () => shell.pageError("Updates available."));
+  if (shellUpdates) shellUpdates.addEventListener("click", () => openDeveloperPanel(doc));
   const shellDeviceStatus = el("shellDeviceStatus", doc);
-  if (shellDeviceStatus) shellDeviceStatus.addEventListener("click", () => shell.pageError("Local storage ready."));
+  if (shellDeviceStatus) shellDeviceStatus.addEventListener("click", () => setPanelContent(doc, "<p>Local storage ready.</p>", true));
   const shellError = el("shellError", doc);
-  if (shellError) shellError.addEventListener("click", () => shell.pageError("No shell errors recorded."));
+  if (shellError) shellError.addEventListener("click", () => openDeveloperPanel(doc));
   const shellMenu = el("shellMenu", doc);
   if (shellMenu) shellMenu.addEventListener("click", () => shell.openShellMenu());
   shell.setConnectionState("connected");
@@ -142,4 +160,6 @@ export function updateShellIdentity(shell, nextIdentity) {
   shell.identity.uuid = nextIdentity.uuid || shell.identity.uuid;
   shell.identity.nickname = nextIdentity.nickname || createDefaultNickname(shell.identity.uuid);
   saveLocalIdentity(shell.identity, shell.storage);
+  const profile = el("shellProfile", shell.document);
+  if (profile) profile.textContent = shell.identity.nickname;
 }
