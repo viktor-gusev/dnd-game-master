@@ -159,6 +159,53 @@ test("campaign directory renders a useful empty state with primary create action
   assert.equal(document.getElementById("createCampaignDialog").opened, true);
 });
 
+test("campaign directory shows a join action for non-participants", async () => {
+  const document = makeDocument();
+  const shellCalls = [];
+  const shell = {
+    document,
+    locationApi: { href: "http://localhost/", assign(url) { this.href = url; } },
+    confirmImpl: () => true,
+    identity: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+    api: async (path, options = {}) => {
+      shellCalls.push([path, options.method || "GET"]);
+      if (path === "/api/campaigns") return { ok: true, data: { campaigns: [{ campaignId: "campaign-2", title: "Secret run", gm: { uuid: "9", nickname: "Bob" }, participantCount: 3, currentUserParticipant: false, currentUserRole: "", lastActivityAt: "2026-05-25T10:00:00.000Z" }] } };
+      if (path === "/api/campaigns/campaign-2/join") return { ok: true, data: { campaignId: "campaign-2" } };
+      return { ok: true, data: {} };
+    },
+    setPageContext(context) { this.pageContext = context; },
+    pageError(message) { this.lastError = message; },
+  };
+
+  await initializeCampaignDirectoryApp(shell);
+  const joinButton = document.getElementById("campaignDirectory").children[0].children[1].children[0];
+  assert.equal(joinButton.textContent, "Join campaign");
+  await joinButton.listeners.get("click")();
+  assert.equal(shellCalls.some(([path]) => path === "/api/campaigns/campaign-2/join"), true);
+  assert.equal(shell.locationApi.href.endsWith("/player-workspace.html?campaignId=campaign-2"), true);
+});
+
+test("campaign directory header create button opens the campaign dialog", async () => {
+  const document = makeDocument();
+  const shell = {
+    document,
+    locationApi: { href: "http://localhost/", assign() {} },
+    confirmImpl: () => true,
+    identity: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
+    api: async (path) => {
+      if (path === "/api/campaigns") return { ok: true, data: { campaigns: [] } };
+      return { ok: true, data: {} };
+    },
+    setPageContext(context) { this.pageContext = context; },
+    pageError(message) { this.lastError = message; },
+    openCampaignCreator() { document.getElementById("createCampaignDialog").opened = true; },
+  };
+
+  await initializeCampaignDirectoryApp(shell);
+  await document.getElementById("openCreateCampaign").listeners.get("click")();
+  assert.equal(document.getElementById("createCampaignDialog").opened, true);
+});
+
 test("player workspace declares player workspace context with campaignId", async () => {
   const document = makeDocument();
   const shell = {

@@ -58,12 +58,13 @@ function renderCampaignCard(doc, shell, campaign, response, refresh) {
 
   const actions = doc.createElement("div");
   actions.className = "campaign-actions";
+  const canOpenDirectly = campaign.currentUserParticipant || campaign.currentUserRole === "game_master";
 
   const open = doc.createElement("button");
   open.type = "button";
-  open.textContent = "Open workspace";
+  open.textContent = canOpenDirectly ? "Open workspace" : "Join campaign";
   open.addEventListener("click", async () => {
-    if (!campaign.currentUserParticipant && campaign.currentUserRole !== "game_master") {
+    if (!canOpenDirectly) {
       const joined = await shell.api(`/api/campaigns/${campaign.campaignId}/join`, {
         method: "POST",
         operation: "join-campaign",
@@ -102,8 +103,19 @@ function renderCampaignCard(doc, shell, campaign, response, refresh) {
       card.appendChild(activityLine);
       const openBtn = doc.createElement("button");
       openBtn.type = "button";
-      openBtn.textContent = "Open workspace";
-      openBtn.addEventListener("click", () => navigateToCampaign(campaign.campaignId, selected.data.workspaceKind || "player workspace", shell.locationApi));
+      const detailsCanOpenDirectly = campaign.currentUserParticipant || campaign.currentUserRole === "game_master";
+      openBtn.textContent = detailsCanOpenDirectly ? "Open workspace" : "Join campaign";
+      openBtn.addEventListener("click", async () => {
+        if (!detailsCanOpenDirectly) {
+          const joined = await shell.api(`/api/campaigns/${campaign.campaignId}/join`, {
+            method: "POST",
+            operation: "join-campaign",
+            body: JSON.stringify({}),
+          });
+          if (!joined.ok) return shell.pageError(joined.error?.message || "Failed to join campaign.");
+        }
+        navigateToCampaign(campaign.campaignId, selected.data.workspaceKind || "player workspace", shell.locationApi);
+      });
       card.appendChild(openBtn);
       if (campaign.gm?.uuid === shell.identity.uuid) {
         const deleteBtn = doc.createElement("button");
@@ -142,6 +154,7 @@ export async function initializeCampaignDirectoryApp(shell) {
   const identityUuid = el("identityUuid", doc);
   const identityNickname = el("identityNickname", doc);
   const campaignTitleInput = el("campaignTitle", doc);
+  const openCreateCampaignButton = el("openCreateCampaign", doc);
   const refreshButton = el("refreshCampaigns", doc);
 
   shell.setPageContext({ kind: "campaign directory", campaignId: "" });
@@ -195,6 +208,7 @@ export async function initializeCampaignDirectoryApp(shell) {
   }
 
   if (refreshButton) refreshButton.addEventListener("click", refresh);
+  if (openCreateCampaignButton) openCreateCampaignButton.addEventListener("click", () => shell.openCampaignCreator());
   if (identityDialog) {
     const form = identityDialog.querySelector("form");
     if (form) form.addEventListener("submit", async (event) => {
