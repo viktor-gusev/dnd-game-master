@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import { initializeBrowserApplicationShell } from "../../../../web/js/browser-shell.js";
 import { initializeCampaignDirectoryApp } from "../../../../web/js/campaign-directory.js";
-import { initializeCampaignWorkspace } from "../../../../web/js/campaign-workspace.js";
+import { initializeWorkspaceApp } from "../../../../web/js/workspace.js";
 
 function makeNode(id = "") {
   const node = {
@@ -33,7 +33,7 @@ function makeDocument() {
   const nodes = new Map();
   return {
     body: makeNode("body"),
-    location: { href: "http://localhost/campaign.html?campaignId=campaign-1" },
+    location: { href: "http://localhost/player-workspace.html?campaignId=campaign-1" },
     addEventListener() {},
     createElement: () => makeNode(),
     getElementById(id) { if (!nodes.has(id)) nodes.set(id, makeNode(id)); return nodes.get(id); },
@@ -66,8 +66,7 @@ test("shared shell resolves identity and tab identity before page controllers st
   assert.equal(pageStarted, true);
   assert.equal(shell.tabIdentityId, "tab-1");
   assert.equal(document.getElementById("shellContextTitle").textContent, "Campaigns");
-  assert.equal(document.getElementById("shellError").textContent, "");
-  assert.equal(document.getElementById("shellError").attributes["aria-label"], "Errors 0");
+  assert.equal(document.getElementById("shellLogs").attributes["aria-label"], "Errors 0");
   assert.equal(document.getElementById("shellDeviceStatus").textContent, "");
   assert.equal(document.getElementById("shellDeviceStatus").attributes["aria-label"], "Device ready");
 });
@@ -104,8 +103,8 @@ test("shell updates reflect notification freshness", async () => {
   });
 
   shell.markUpdatesFresh({ type: "campaign.event.created" });
-  assert.equal(document.getElementById("shellUpdates").attributes["aria-label"], "Updates available");
-  assert.equal(document.getElementById("shellUpdates").dataset.freshness, "campaign.event.created");
+  assert.equal(document.getElementById("shellNotifications").attributes["aria-label"], "Updates available");
+  assert.equal(document.getElementById("shellNotifications").dataset.freshness, "campaign.event.created");
 });
 
 test("campaign directory is list-first, hides identity edit from page actions, and opens details through the shell", async () => {
@@ -160,34 +159,35 @@ test("campaign directory renders a useful empty state with primary create action
   assert.equal(document.getElementById("createCampaignDialog").opened, true);
 });
 
-test("campaign workspace declares campaign workspace context with campaignId", async () => {
+test("player workspace declares player workspace context with campaignId", async () => {
   const document = makeDocument();
   const shell = {
     document,
-    locationApi: { href: "http://localhost/campaign.html?campaignId=campaign-1" },
+    locationApi: { href: "http://localhost/player-workspace.html?campaignId=campaign-1" },
     identity: { uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" },
     api: async (path) => {
-      if (path === "/api/campaigns/campaign-1") return { ok: true, data: { campaign: { campaignId: "campaign-1", title: "Friday tavern run", gm: { nickname: "Alice" } }, participants: [{ identityId: "1" }], brief: {}, events: [], aiDrafts: [], credits: [] } };
+      if (path === "/api/campaigns/campaign-1") return { ok: true, data: { campaignId: "campaign-1", workspaceKind: "player workspace", campaign: { campaignId: "campaign-1", title: "Friday tavern run", gm: { nickname: "Alice" } }, participants: [{ identityId: "1" }], brief: {}, events: [], aiDrafts: [], credits: [] } };
       return { ok: true, data: {} };
     },
     setPageContext(context) { this.pageContext = context; },
     pageError(message) { this.lastError = message; },
   };
 
-  await initializeCampaignWorkspace(shell);
-  assert.deepEqual(shell.pageContext, { kind: "campaign workspace", campaignId: "campaign-1" });
+  await initializeWorkspaceApp(shell, "player workspace");
+  assert.deepEqual(shell.pageContext, { kind: "player workspace", campaignId: "campaign-1" });
   assert.equal(document.getElementById("campaignTitle").textContent, "Friday tavern run");
   assert.match(document.getElementById("campaignSubtitle").textContent, /GM Alice/);
   assert.match(document.getElementById("campaignSubtitle").textContent, /1 participant/);
 });
 
 test("browser entry pages contain the shared shell frame and dedicated page runtime area", async () => {
-  const [directoryHtml, workspaceHtml] = await Promise.all([
+  const [directoryHtml, workspaceHtml, gmWorkspaceHtml] = await Promise.all([
     readFile(new URL("../../../../web/index.html", import.meta.url), "utf8"),
-    readFile(new URL("../../../../web/campaign.html", import.meta.url), "utf8"),
+    readFile(new URL("../../../../web/player-workspace.html", import.meta.url), "utf8"),
+    readFile(new URL("../../../../web/game-master-workspace.html", import.meta.url), "utf8"),
   ]);
 
-  for (const html of [directoryHtml, workspaceHtml]) {
+  for (const html of [directoryHtml, workspaceHtml, gmWorkspaceHtml]) {
     assert.match(html, /class="application-header"/);
     assert.match(html, /class="page-runtime-area"/);
     assert.match(html, /class="application-footer"/);

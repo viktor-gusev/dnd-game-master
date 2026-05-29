@@ -146,19 +146,28 @@ export default class Dnd_Gm_Store_File_Data {
       campaignId: current.campaign.campaignId,
       title: current.campaign.title,
       gm: current.campaign.gm,
-      participantCount: current.participants.length,
-      participants: current.participants,
+      participantCount: Array.isArray(current.participants) ? current.participants.length : 0,
+      participants: Array.isArray(current.participants) ? current.participants : [],
       brief: current.brief || {},
-      materials: current.materials,
-      assets: current.assets,
-      characterSheets: current.characterSheets,
-      aiDrafts: current.aiDrafts,
-      events: current.events,
-      credits: current.credits,
+      materials: Array.isArray(current.materials) ? current.materials : [],
+      assets: Array.isArray(current.assets) ? current.assets : [],
+      characterSheets: Array.isArray(current.characterSheets) ? current.characterSheets : [],
+      aiDrafts: Array.isArray(current.aiDrafts) ? current.aiDrafts : [],
+      events: Array.isArray(current.events) ? current.events : [],
+      credits: Array.isArray(current.credits) ? current.credits : [],
       lastActivityAt: current.campaign.lastActivityAt || current.campaign.createdAt,
       createdAt: current.campaign.createdAt,
-      currentUserParticipant: !!identityId && current.participants.some((participant) => participant.identityId === identityId),
+      currentUserParticipant: !!identityId && Array.isArray(current.participants) && current.participants.some((participant) => participant.identityId === identityId),
+      currentUserRole: current.campaign.gm?.uuid === identityId ? "game_master" : (identityId && Array.isArray(current.participants) && current.participants.some((participant) => participant.identityId === identityId) ? "player" : ""),
     });
+
+    this.resolveWorkspaceKind = (current, identityId) => {
+      if (!current) return "";
+      const participants = Array.isArray(current.participants) ? current.participants : [];
+      if (current.campaign?.gm?.uuid === identityId) return "game master workspace";
+      if (participants.some((participant) => participant.identityId === identityId)) return "player workspace";
+      return "";
+    };
 
     this.listCampaigns = async (identityId = "") => {
       await this.init();
@@ -211,6 +220,28 @@ export default class Dnd_Gm_Store_File_Data {
     this.loadCampaign = async (campaignId, identityId = "") => {
       const current = await this.readCampaign(campaignId);
       return current ? this.decorateCampaign(current, identityId) : null;
+    };
+
+    this.loadCampaignProjection = async (campaignId, identityId = "") => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const campaign = this.decorateCampaign(current, identityId);
+      const workspaceKind = this.resolveWorkspaceKind(current, identityId);
+      if (!workspaceKind) return { campaignId, workspaceKind: "", campaign: null };
+      const isGM = workspaceKind === "game master workspace";
+      return {
+        campaignId,
+        workspaceKind,
+        campaign,
+        brief: current.brief || {},
+        participants: Array.isArray(current.participants) ? current.participants : [],
+        materials: isGM ? (Array.isArray(current.materials) ? current.materials : []) : [],
+        assets: isGM ? (Array.isArray(current.assets) ? current.assets : []) : [],
+        characterSheets: (Array.isArray(current.characterSheets) ? current.characterSheets : []).filter((sheet) => isGM || sheet.playerIdentityId === identityId || sheet.state === "approved"),
+        aiDrafts: isGM ? (Array.isArray(current.aiDrafts) ? current.aiDrafts : []) : (Array.isArray(current.aiDrafts) ? current.aiDrafts : []).filter((draft) => draft.ownerIdentityId === identityId || !draft.ownerIdentityId),
+        events: Array.isArray(current.events) ? current.events : [],
+        credits: isGM ? (Array.isArray(current.credits) ? current.credits : []) : [],
+      };
     };
 
     this.saveCampaign = async (campaignId, campaign) => writeJson(this.campaignJson(campaignId), campaign);
@@ -292,6 +323,7 @@ export default class Dnd_Gm_Store_File_Data {
       const sheet = {
         sheetId: `sheet_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
         playerIdentityId: identity.id,
+        ownerIdentityId: identity.id,
         title: String(body.title || "").trim() || "Character Sheet",
         state: "draft",
         content: String(body.content || "").trim(),
@@ -347,6 +379,9 @@ export default class Dnd_Gm_Store_File_Data {
     this.createAIDraft = async (campaignId, body, identity) => {
       const current = await this.readCampaign(campaignId);
       if (!current) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      const isParticipant = current.participants.some((participant) => participant.identityId === identity.id);
+      if (!isGM && !isParticipant) throw Object.assign(new Error("Identity is not authorized for this campaign."), { code: "forbidden" });
       const draft = {
         draftId: `draft_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
         title: String(body.title || "").trim() || "AI Draft",
@@ -355,6 +390,8 @@ export default class Dnd_Gm_Store_File_Data {
         createdAt: this.timestamp(),
         updatedAt: this.timestamp(),
         sourceDraftId: "",
+        ownerIdentityId: identity.id,
+        ownerRole: isGM ? "game_master" : "player",
       };
       current.aiDrafts.push(draft);
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
@@ -373,7 +410,7 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const draft = current.aiDrafts.find((item) => item.draftId === draftId);
       if (!draft) return null;
-      if (current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may edit AI drafts."), { code: "forbidden" });
+      if (current.campaign.gm.uuid !== identity.id || draft.ownerRole !== "game_master") throw Object.assign(new Error("Only the Game Master may edit Game Master AI drafts."), { code: "forbidden" });
       if (typeof body.title === "string") draft.title = body.title.trim() || draft.title;
       if (typeof body.content === "string") draft.content = body.content;
       draft.updatedAt = this.timestamp();
@@ -387,12 +424,17 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const source = current.aiDrafts.find((item) => item.draftId === draftId);
       if (!source) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      if (isGM && source.ownerRole !== "game_master") throw Object.assign(new Error("Game Master AI cannot regenerate player-owned drafts."), { code: "forbidden" });
+      if (!isGM && source.ownerIdentityId !== identity.id) throw Object.assign(new Error("Players may only regenerate their own drafts."), { code: "forbidden" });
       const regenerated = {
         draftId: `draft_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
         title: `${source.title} (regenerated)`,
         content: source.content,
         state: "draft",
         sourceDraftId: draftId,
+        ownerIdentityId: identity.id,
+        ownerRole: isGM ? "game_master" : "player",
         createdAt: this.timestamp(),
         updatedAt: this.timestamp(),
       };
@@ -408,7 +450,7 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const draft = current.aiDrafts.find((item) => item.draftId === draftId);
       if (!draft) return null;
-      if (current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may accept AI drafts."), { code: "forbidden" });
+      if (current.campaign.gm.uuid !== identity.id || draft.ownerRole !== "game_master") throw Object.assign(new Error("Only the Game Master may accept Game Master AI drafts."), { code: "forbidden" });
       draft.state = "accepted";
       draft.updatedAt = this.timestamp();
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
@@ -421,7 +463,7 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const draft = current.aiDrafts.find((item) => item.draftId === draftId);
       if (!draft) return null;
-      if (current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may reject AI drafts."), { code: "forbidden" });
+      if (current.campaign.gm.uuid !== identity.id || draft.ownerRole !== "game_master") throw Object.assign(new Error("Only the Game Master may reject Game Master AI drafts."), { code: "forbidden" });
       draft.state = "rejected";
       draft.updatedAt = this.timestamp();
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });

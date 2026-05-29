@@ -87,7 +87,7 @@ export async function initializeBrowserApplicationShell({
     },
     setPageContext(nextContext) {
       shell.pageContext = { ...shell.pageContext, ...nextContext };
-      setText(el("shellContextTitle", doc), shell.pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaigns");
+      setText(el("shellContextTitle", doc), shell.pageContext.kind === "player workspace" ? "Player Workspace" : shell.pageContext.kind === "game master workspace" ? "Game Master Workspace" : "Campaigns");
       if (shell.eventDelivery) {
         void shell.eventDelivery.updateCampaignContext(shell.pageContext.campaignId || "");
       }
@@ -154,7 +154,7 @@ export async function initializeBrowserApplicationShell({
   shell.eventDelivery = eventDelivery;
   eventDelivery.connect();
 
-  setText(el("shellContextTitle", doc), pageContext.kind === "campaign workspace" ? "Campaign Workspace" : "Campaigns");
+  setText(el("shellContextTitle", doc), pageContext.kind === "player workspace" ? "Player Workspace" : pageContext.kind === "game master workspace" ? "Game Master Workspace" : "Campaigns");
   const shellDeviceStatus = el("shellDeviceStatus", doc);
   if (shellDeviceStatus) shellDeviceStatus.setAttribute("aria-label", "Device ready");
   const shellProfile = el("shellProfile", doc);

@@ -34,6 +34,7 @@ function makeDataStore() {
     async upsertIdentity(uuid, nickname) { return { id: uuid, uuid, nickname, displayName: nickname }; },
     async getIdentity(identityId) { return identityId === "gm-1" ? { id: "gm-1", uuid: "gm-1", nickname: "Alice" } : identityId === "player-1" ? { id: "player-1", uuid: "player-1", nickname: "Bob" } : null; },
     async listCampaigns() { return [campaign]; },
+    async loadCampaignProjection() { return { campaignId: campaign.campaignId, workspaceKind: "game master workspace", campaign, brief: campaign.brief, participants: campaign.participants, materials: [], assets: [], characterSheets: [], aiDrafts: [], events: [], credits: [] }; },
     async createCampaign(identity, body) { return { campaign: { ...campaign, campaignId: "campaign_2", title: body.title || "Campaign 2", gm: { uuid: identity.id, nickname: identity.nickname } } }; },
     async loadCampaign() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async joinCampaign() { return { campaign: { ...campaign, participantCount: 2 }, participants: [...campaign.participants, { identityId: "player-1", nickname: "Bob", displayName: "Bob", role: "player" }], brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
@@ -81,6 +82,18 @@ test("GET /api/campaigns/:campaignId returns brief alongside campaign data", asy
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
   assert.match(context.response.body, /"brief":/);
+});
+
+test("GET /api/campaigns/:campaignId allows participant reads", async () => {
+  const store = makeDataStore();
+  store.loadCampaignProjection = async () => ({ campaignId: "campaign_1", workspaceKind: "player workspace", campaign: store.campaign, brief: store.campaign.brief, participants: store.campaign.participants, materials: [], assets: [], characterSheets: [], aiDrafts: [], events: [], credits: [] });
+  const handler = new ApiHandler({ dataStore: store, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1";
+  context.request.headers["x-local-identity-id"] = "player-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"workspaceKind":"player workspace"/);
 });
 
 test("POST /api/campaigns creates a campaign for the current Game Master", async () => {
@@ -170,4 +183,24 @@ test("GET /api/events is not exposed as a global feed endpoint", async () => {
   context.request.headers["x-local-identity-id"] = "gm-1";
   await handler.handle(context);
   assert.equal(context.response.statusCode, 404);
+});
+
+test("API failures are logged before controlled error responses are returned", async () => {
+  const store = makeDataStore();
+  store.loadCampaignProjection = async () => { throw new Error("boom"); };
+  const handler = new ApiHandler({ dataStore: store, eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  const originalError = console.error;
+  const calls = [];
+  console.error = (...args) => { calls.push(args); };
+  try {
+    await handler.handle(context);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(context.response.statusCode, 500);
+  assert.equal(calls.length > 0, true);
+  assert.match(String(calls[0][0]), /\[api\] request failed/);
 });

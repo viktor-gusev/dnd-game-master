@@ -4,8 +4,9 @@ function el(id, doc = document) {
   return doc.getElementById(id);
 }
 
-function navigateToCampaign(campaignId, locationApi = globalThis.location) {
-  const url = `/campaign.html?campaignId=${encodeURIComponent(campaignId)}`;
+function navigateToCampaign(campaignId, workspaceKind, locationApi = globalThis.location) {
+  const page = workspaceKind === "game master workspace" ? "/game-master-workspace.html" : "/player-workspace.html";
+  const url = `${page}?campaignId=${encodeURIComponent(campaignId)}`;
   if (locationApi?.assign) locationApi.assign(url);
   else if (locationApi) locationApi.href = url;
 }
@@ -33,7 +34,7 @@ function formatParticipantCount(count = 0) {
 function renderCampaignCard(doc, shell, campaign, response, refresh) {
   const item = doc.createElement("article");
   item.className = "campaign-list-item";
-  const role = campaign.currentUserParticipant ? "You are participating" : "Join to participate";
+  const role = campaign.currentUserRole === "game_master" ? "You are the Game Master" : campaign.currentUserParticipant ? "You are participating" : "Join to participate";
   const summary = doc.createElement("div");
   const heading = doc.createElement("h2");
   heading.textContent = campaign.title || campaign.campaignId;
@@ -62,7 +63,7 @@ function renderCampaignCard(doc, shell, campaign, response, refresh) {
   open.type = "button";
   open.textContent = "Open workspace";
   open.addEventListener("click", async () => {
-    if (!campaign.currentUserParticipant) {
+    if (!campaign.currentUserParticipant && campaign.currentUserRole !== "game_master") {
       const joined = await shell.api(`/api/campaigns/${campaign.campaignId}/join`, {
         method: "POST",
         operation: "join-campaign",
@@ -70,7 +71,7 @@ function renderCampaignCard(doc, shell, campaign, response, refresh) {
       });
       if (!joined.ok) return shell.pageError(joined.error?.message || "Failed to join campaign.");
     }
-    navigateToCampaign(campaign.campaignId, shell.locationApi);
+    navigateToCampaign(campaign.campaignId, campaign.currentUserRole === "game_master" ? "game master workspace" : "player workspace", shell.locationApi);
   });
 
   const detailsBtn = doc.createElement("button");
@@ -102,7 +103,7 @@ function renderCampaignCard(doc, shell, campaign, response, refresh) {
       const openBtn = doc.createElement("button");
       openBtn.type = "button";
       openBtn.textContent = "Open workspace";
-      openBtn.addEventListener("click", () => navigateToCampaign(campaign.campaignId, shell.locationApi));
+      openBtn.addEventListener("click", () => navigateToCampaign(campaign.campaignId, selected.data.workspaceKind || "player workspace", shell.locationApi));
       card.appendChild(openBtn);
       if (campaign.gm?.uuid === shell.identity.uuid) {
         const deleteBtn = doc.createElement("button");

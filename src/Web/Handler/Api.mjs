@@ -58,6 +58,17 @@ function logEventDeliveryFailure(req, err) {
   console.warn(`[event-delivery] request failed ${details.join(" ")}`, err?.message ? `message=${err.message}` : "");
 }
 
+function logApiFailure(req, err) {
+  const url = new URL(req.url, "http://localhost");
+  const details = [
+    `method=${req.method || "GET"}`,
+    `path=${url.pathname}`,
+    `errorCode=${err?.code || "internal_error"}`,
+  ];
+  if (req.headers?.["x-local-identity-id"]) details.push(`identityId=${req.headers["x-local-identity-id"]}`);
+  console.error(`[api] request failed ${details.join(" ")}`, err?.message ? `message=${err.message}` : "", err?.stack || "");
+}
+
 function campaignSummaryForList(campaign, currentIdentityId = "") {
   return {
     campaignId: campaign.campaignId,
@@ -65,6 +76,7 @@ function campaignSummaryForList(campaign, currentIdentityId = "") {
     gm: campaign.gm,
     participantCount: campaign.participantCount,
     currentUserParticipant: !!currentIdentityId && campaign.participants.some((participant) => participant.identityId === currentIdentityId),
+    currentUserRole: campaign.gm?.uuid === currentIdentityId ? "game_master" : (currentIdentityId && campaign.participants.some((participant) => participant.identityId === currentIdentityId) ? "player" : ""),
     lastActivityAt: campaign.lastActivityAt,
     brief: campaign.brief,
   };
@@ -126,11 +138,11 @@ export default class Dnd_Gm_Web_Handler_Api {
 
     this.getCampaign = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
+      const current = await this.dataStore.loadCampaignProjection(campaignId, identity.id);
       if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
-      ensureParticipant(current, identity.id);
+      if (!current.workspaceKind) throw Object.assign(new Error("Identity is not authorized for this campaign."), { code: "forbidden" });
       complete(context);
-      json(res, 200, success({ campaign: campaignFrom(current), brief: current.brief, participants: current.participants, materials: current.materials, assets: current.assets, characterSheets: current.characterSheets, aiDrafts: current.aiDrafts, events: current.events, credits: current.credits }));
+      json(res, 200, success(current));
     };
 
     this.patchCampaign = async (campaignId, req, res, context) => {
@@ -172,7 +184,7 @@ export default class Dnd_Gm_Web_Handler_Api {
       const identity = await this.resolveIdentityFromHeader(req);
       const current = await this.dataStore.loadCampaign(campaignId, identity.id);
       if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
-      ensureParticipant(current, identity.id);
+      if (!current.currentUserParticipant && current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Identity is not authorized for this campaign."), { code: "forbidden" });
       complete(context);
       json(res, 200, success({ brief: current.brief }));
     };
@@ -399,6 +411,7 @@ export default class Dnd_Gm_Web_Handler_Api {
         }
         return;
       } catch (err) {
+        logApiFailure(req, err);
         if (url.pathname.startsWith("/api/event-delivery/")) logEventDeliveryFailure(req, err);
         if (err?.code === "invalid_json") return json(res, 400, error("invalid_json", "Invalid JSON body."));
         if (err?.code === "missing_identity") return json(res, 400, error("missing_identity", "Missing local identity id."));

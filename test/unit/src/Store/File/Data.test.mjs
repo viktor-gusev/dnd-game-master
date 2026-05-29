@@ -39,6 +39,38 @@ test("file store persists campaigns under var/data/campaigns and records events 
   assert.match(campaignText, /"lastActivityAt":/);
 });
 
+test("loadCampaignProjection tolerates older campaigns missing participants data", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const created = await store.createCampaign(alice, { title: "Legacy campaign" });
+  const campaignFile = path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "campaign.json");
+  const campaign = JSON.parse(await fs.readFile(campaignFile, "utf8"));
+  delete campaign.participants;
+  await fs.writeFile(campaignFile, `${JSON.stringify(campaign, null, 2)}\n`, "utf8");
+
+  const projection = await store.loadCampaignProjection(created.campaignId, alice.id);
+
+  assert.equal(projection.workspaceKind, "game master workspace");
+  assert.equal(Array.isArray(projection.participants), true);
+  assert.equal(projection.participants.length, 1);
+  assert.equal(projection.participants[0].role, "game_master");
+  assert.equal(projection.campaign.currentUserParticipant, true);
+});
+
+test("loadCampaignProjection resolves a joined player from the loaded participants aggregate", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Joinable campaign" });
+  await store.joinCampaign(created.campaignId, bob);
+
+  const projection = await store.loadCampaignProjection(created.campaignId, bob.id);
+
+  assert.equal(projection.workspaceKind, "player workspace");
+  assert.equal(projection.campaign.currentUserParticipant, true);
+  assert.equal(projection.participants.some((participant) => participant.identityId === bob.id), true);
+});
+
 test("file store cleanup removes expired campaigns and the 10-day boundary remains", async () => {
   const now = () => new Date("2026-05-20T00:00:00.000Z");
   const { store } = await createStore({ now });
