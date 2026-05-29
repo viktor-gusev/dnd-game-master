@@ -19,21 +19,26 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Trebuchet MS", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   background:
     radial-gradient(circle at top, rgba(67, 103, 184, 0.26), transparent 34%),
     linear-gradient(180deg, var(--bg-2), var(--bg));
 }
 
 main {
-  width: min(1140px, calc(100% - 20px));
-  margin: 0 auto;
-  padding: 8px 0 88px;
+  width: 100%;
+  margin: 0;
+  padding: 0 0 88px;
 }
 
 .page-shell {
   display: grid;
   gap: 10px;
+}
+
+.page-runtime-content {
+  width: min(1140px, calc(100% - 20px));
+  margin: 0 auto;
 }
 
 .application-header,
@@ -55,9 +60,12 @@ main {
   top: 0;
   z-index: 20;
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 16px;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 10px 12px;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
 }
 
 .shell-row {
@@ -73,14 +81,47 @@ main {
 }
 
 .shell-row-secondary {
-  justify-content: flex-start;
+  justify-content: space-between;
+}
+
+.shell-row-secondary-right {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-status-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
 }
 
 .shell-title {
-  flex: 1 1 auto;
-  min-width: 8rem;
-  font-size: 1rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.98rem;
   letter-spacing: -0.02em;
+}
+
+.shell-title-secondary {
+  color: var(--accent-strong);
+}
+
+.shell-status-cluster-secondary {
+  margin-left: auto;
 }
 
 .shell-chip,
@@ -339,8 +380,11 @@ button:hover,
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  width: 100%;
   padding: 8px 10px;
-  border-radius: 16px;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
 }
 
 .application-footer button {
@@ -354,7 +398,7 @@ button:hover,
   }
 
   .application-header {
-    grid-template-columns: 1fr;
+    padding-inline: 20px;
   }
 
   .shell-row-secondary {
@@ -363,5 +407,16 @@ button:hover,
 
   .application-footer {
     display: none;
+  }
+}
+
+@media (max-width: 719px) {
+  .shell-row-secondary {
+    align-items: flex-start;
+  }
+
+  .shell-status-cluster-secondary {
+    width: 100%;
+    justify-content: flex-end;
   }
 }

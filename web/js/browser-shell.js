@@ -64,14 +64,14 @@ export async function initializeBrowserApplicationShell({
     errorCount: 0,
     pageContext: { ...pageContext },
     pageError(message) {
-      const shellError = el("shellError", doc);
-      if (shellError) shellError.setAttribute("aria-label", shell.errorCount ? `Errors ${shell.errorCount}` : "Errors 0");
+      const shellLogs = el("shellLogs", doc);
+      if (shellLogs) shellLogs.setAttribute("aria-label", shell.errorCount ? `Errors ${shell.errorCount}` : "Errors 0");
       if (message) setText(el("shellConnectionState", doc), message);
     },
     recordShellError(message) {
       shell.errorCount += 1;
-      const shellError = el("shellError", doc);
-      if (shellError) shellError.setAttribute("aria-label", `Errors ${shell.errorCount}`);
+      const shellLogs = el("shellLogs", doc);
+      if (shellLogs) shellLogs.setAttribute("aria-label", `Errors ${shell.errorCount}`);
       if (message) setText(el("shellConnectionState", doc), message);
     },
     setConnectionState(state) {
@@ -85,11 +85,11 @@ export async function initializeBrowserApplicationShell({
       }
     },
     markUpdatesFresh(notification) {
-      const shellUpdates = el("shellUpdates", doc);
-      if (!shellUpdates) return;
+      const shellNotifications = el("shellNotifications", doc);
+      if (!shellNotifications) return;
       const label = notification?.type === "campaign.event.created" ? "Updates available" : "Updates";
-      shellUpdates.setAttribute("aria-label", label);
-      shellUpdates.dataset.freshness = notification?.type || "notification";
+      shellNotifications.setAttribute("aria-label", label);
+      shellNotifications.dataset.freshness = notification?.type || "notification";
     },
     openIdentityEditor() {
       const dialog = el("identityDialog", doc);
@@ -151,8 +151,8 @@ export async function initializeBrowserApplicationShell({
   if (shellDeviceStatus) shellDeviceStatus.setAttribute("aria-label", "Device ready");
   const shellProfile = el("shellProfile", doc);
   if (shellProfile) shellProfile.setAttribute("aria-label", identity.nickname);
-  const shellError = el("shellError", doc);
-  if (shellError) shellError.setAttribute("aria-label", "Errors 0");
+  const shellLogs = el("shellLogs", doc);
+  if (shellLogs) shellLogs.setAttribute("aria-label", "Errors 0");
 
   const footerCampaigns = el("footerCampaigns", doc);
   if (footerCampaigns) footerCampaigns.addEventListener("click", () => { locationApi.href = "/"; });
@@ -161,10 +161,10 @@ export async function initializeBrowserApplicationShell({
   const footerProfile = el("footerProfile", doc);
   if (footerProfile) footerProfile.addEventListener("click", () => shell.openIdentityEditor());
   if (shellProfile) shellProfile.addEventListener("click", () => shell.openIdentityEditor());
-  const shellUpdates = el("shellUpdates", doc);
-  if (shellUpdates) shellUpdates.addEventListener("click", () => openDeveloperPanel(doc));
+  const shellNotifications = el("shellNotifications", doc);
+  if (shellNotifications) shellNotifications.addEventListener("click", () => openDeveloperPanel(doc));
   if (shellDeviceStatus) shellDeviceStatus.addEventListener("click", () => setPanelContent(doc, "<p>Local storage ready.</p>", true));
-  if (shellError) shellError.addEventListener("click", () => openDeveloperPanel(doc));
+  if (shellLogs) shellLogs.addEventListener("click", () => openDeveloperPanel(doc));
   const shellMenu = el("shellMenu", doc);
   if (shellMenu) shellMenu.addEventListener("click", () => shell.openShellMenu());
   enableBackdropClose(el("shellPanel", doc), () => {
