@@ -2,19 +2,19 @@
 
 /**
  * @namespace Dnd_Gm_Service_EventDelivery_Runtime
- * @description Manages runtime-only tab-level SSE connections and hint delivery.
+ * @description Manages runtime-only tab-level SSE connections and notification delivery.
  */
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function writeEvent(response, payload) {
+function writeNotification(response, payload) {
   response.write(`event: notification\n`);
   response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-function buildPayload({ type, scope, resourceKind, occurredAt = nowIso(), campaignId, resourceId, campaignEventId, version }) {
+function buildNotificationPayload({ type, scope, resourceKind, occurredAt = nowIso(), campaignId, resourceId, campaignEventId, version }) {
   const payload = { type, scope, resourceKind, occurredAt };
   if (campaignId) payload.campaignId = campaignId;
   if (resourceId) payload.resourceId = resourceId;
@@ -50,7 +50,7 @@ export default class Dnd_Gm_Service_EventDelivery_Runtime {
         response.on("error", cleanup);
       }
       if (previous && previous.response && !previous.response.writableEnded) previous.response.end();
-      writeEvent(response, { type: "delivery.connected", scope: "user", resourceKind: "identity", occurredAt: nowIso() });
+      writeNotification(response, { type: "delivery.connected", scope: "user", resourceKind: "identity", occurredAt: nowIso() });
       return channelRegistry.get(tabIdentityId);
     };
 
@@ -66,7 +66,7 @@ export default class Dnd_Gm_Service_EventDelivery_Runtime {
       const delivered = [];
       for (const entry of channelRegistry.listByLocalIdentity(localIdentityId)) {
         if (!entry.response || entry.response.writableEnded) continue;
-        writeEvent(entry.response, buildPayload({ type, scope: "user", resourceKind, resourceId, campaignEventId, version, occurredAt }));
+        writeNotification(entry.response, buildNotificationPayload({ type, scope: "user", resourceKind, resourceId, campaignEventId, version, occurredAt }));
         delivered.push(entry.tabIdentityId);
       }
       return delivered;
@@ -78,7 +78,7 @@ export default class Dnd_Gm_Service_EventDelivery_Runtime {
         if (!entry.campaignId || entry.campaignId !== campaignId) continue;
         if (!localIdentityIds.includes(entry.localIdentityId)) continue;
         if (!entry.response || entry.response.writableEnded) continue;
-        writeEvent(entry.response, buildPayload({ type, scope: "campaign", campaignId, resourceKind, resourceId, campaignEventId, version, occurredAt }));
+        writeNotification(entry.response, buildNotificationPayload({ type, scope: "campaign", campaignId, resourceKind, resourceId, campaignEventId, version, occurredAt }));
         delivered.push(entry.tabIdentityId);
       }
       return delivered;

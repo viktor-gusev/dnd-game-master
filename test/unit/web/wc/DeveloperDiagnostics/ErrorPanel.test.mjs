@@ -23,14 +23,16 @@ test("ErrorPanel source uses guarded custom element registration and Diagnostics
   assert.match(source, /"\.\.\/\.\.\/js\/Diagnostics\/ErrorSummary\.mjs"/);
   assert.match(source, /"\.\.\/\.\.\/js\/Diagnostics\/ErrorReport\.mjs"/);
   assert.match(source, /"\.\.\/\.\.\/js\/Diagnostics\/ConsoleErrorPatch\.mjs"/);
+  assert.match(source, /addEventListener\("click",\s*this\.\#onHostClick\)/);
 });
 
 test("ErrorPanel styles keep the open panel content scrollable", async () => {
   const source = await readFile(cssUrl, "utf8");
 
-  assert.match(source, /--panel-viewport-inset:\s*12px/);
-  assert.match(source, /left:\s*var\(--panel-safe-left\);[\s\S]*right:\s*var\(--panel-safe-right\);/);
-  assert.match(source, /\.panel\s*\{[\s\S]*width:\s*auto;[\s\S]*max-width:\s*none;[\s\S]*max-height:/);
+  assert.match(source, /:host\(\[hidden\]\)\s*\{[\s\S]*display:\s*none;/);
+  assert.match(source, /inset:\s*0;/);
+  assert.match(source, /\.host\s*\{[\s\S]*justify-content:\s*center;/);
+  assert.match(source, /\.panel\s*\{[\s\S]*width:\s*min\(/);
   assert.match(source, /\.panel\[hidden\]\s*\{[\s\S]*display:\s*none;/);
   assert.match(source, /\.content\s*\{[\s\S]*min-height:\s*0;[\s\S]*overflow:\s*hidden;/);
   assert.match(source, /\.records,\s*\.details\s*\{[\s\S]*overscroll-behavior:\s*contain;[\s\S]*overflow:\s*auto;/);

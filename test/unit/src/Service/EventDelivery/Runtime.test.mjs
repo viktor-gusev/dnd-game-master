@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import Runtime from "../../../../../src/Service/EventDelivery/Runtime.mjs";
 import ChannelRegistry from "../../../../../src/Store/Memory/EventDelivery/ChannelRegistry.mjs";
 
-test("runtime opens SSE, rebinds context, and delivers scoped hints", () => {
+test("runtime opens SSE, rebinds context, and delivers scoped notifications", () => {
   const registry = new ChannelRegistry();
   const runtime = new Runtime({ channelRegistry: registry });
   const response = { writableEnded: false, headers: {}, chunks: [], setHeader(name, value) { this.headers[name] = value; }, flushHeaders() {}, write(chunk) { this.chunks.push(chunk); }, end() { this.writableEnded = true; } };
@@ -16,4 +16,7 @@ test("runtime opens SSE, rebinds context, and delivers scoped hints", () => {
   const delivered = runtime.notifyUser({ localIdentityId: "local-1", type: "user.identity.changed", resourceKind: "identity" });
   assert.deepEqual(delivered, ["tab-1"]);
   assert.match(response.chunks.join(""), /"type":"user.identity.changed"/);
+  const deletionDelivered = runtime.notifyCampaignDeletion({ campaignId: "campaign-1", localIdentityIds: ["local-1"] });
+  assert.deepEqual(deletionDelivered, ["tab-1"]);
+  assert.match(response.chunks.join(""), /"type":"user.campaign-list.changed"/);
 });

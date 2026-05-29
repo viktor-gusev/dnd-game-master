@@ -144,6 +144,11 @@ export async function initializeCampaignDirectoryApp(shell) {
   const refreshButton = el("refreshCampaigns", doc);
 
   shell.setPageContext({ kind: "campaign directory", campaignId: "" });
+  shell.handleNotification = async (notification) => {
+    if (!notification || notification.type !== "user.campaign-list.changed") return;
+    if (notification.scope !== "user") return;
+    await refresh();
+  };
   if (identityUuid) identityUuid.value = shell.identity.uuid;
   if (identityNickname) identityNickname.value = shell.identity.nickname;
   if (status) status.textContent = "Loading campaigns.";

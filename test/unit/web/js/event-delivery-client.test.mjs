@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createEventDeliveryClient, getOrCreateTabIdentityId } from "../../../../web/js/event-delivery-client.js";
 
-test("event delivery client reuses a tab identity and rebinds context without creating a new one", async () => {
+test("notification client reuses a tab identity and rebinds context without creating a new one", async () => {
   const storage = { data: new Map(), getItem(key) { return this.data.get(key) || ""; }, setItem(key, value) { this.data.set(key, value); } };
   const tabIdentityId = getOrCreateTabIdentityId(storage, { randomUUID: () => "tab-1" });
   const calls = [];

@@ -60,6 +60,12 @@ export async function initializeCampaignWorkspace(shell) {
     if (status) status.textContent = "Workspace ready.";
   }
 
+  shell.handleNotification = async (notification) => {
+    if (!notification || notification.scope !== "campaign") return;
+    if (notification.campaignId !== campaignId) return;
+    if (notification.type === "campaign.event.created") await load();
+  };
+
   if (briefForm) briefForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

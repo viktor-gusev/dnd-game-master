@@ -152,3 +152,22 @@ test("POST /api/event-delivery/context rebinds runtime campaign context with hea
   assert.equal(eventDelivery.rebound.tabIdentityId, "tab-1");
   assert.equal(eventDelivery.rebound.localIdentityId, "gm-1");
 });
+
+test("GET /api/campaigns/:campaignId/events returns campaign-scoped history", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1/events";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"events":\[/);
+});
+
+test("GET /api/events is not exposed as a global feed endpoint", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/events";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 404);
+});

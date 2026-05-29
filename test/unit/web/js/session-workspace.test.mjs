@@ -19,11 +19,11 @@ function makeStorage(initial = {}) {
   return { getItem(key) { return values.has(key) ? values.get(key) : null; }, setItem(key, value) { values.set(key, String(value)); }, values };
 }
 
-test("campaign workspace loads campaign data and shows durable projections", async () => {
+test("campaign workspace loads campaign data from the campaign-scoped events endpoint", async () => {
   const document = makeDocument();
   const storage = makeStorage({ "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289", "dnd-gm.identity.nickname": "Alice" });
   const fetchCalls = [];
-  await initializeCampaignWorkspace({
+  const shell = {
     document,
     storage,
     locationApi: document.location,
@@ -36,11 +36,18 @@ test("campaign workspace loads campaign data and shows durable projections", asy
     },
     setPageContext() {},
     pageError() {},
-  });
+  };
+  await initializeCampaignWorkspace(shell);
 
   assert.equal(document.getElementById("campaignTitle").textContent, "Friday tavern run");
   assert.match(document.getElementById("campaignSubtitle").textContent, /1 participant/);
   assert.match(document.getElementById("brief").textContent, /Friday tavern run/);
   assert.equal(fetchCalls.includes("/api/campaigns/campaign-1"), true);
   assert.equal(document.getElementById("status").textContent, "Workspace ready.");
+
+  const beforeNotification = fetchCalls.length;
+  await shell.handleNotification({ type: "campaign.event.created", scope: "campaign", campaignId: "campaign-1" });
+  assert.equal(fetchCalls.length, beforeNotification + 1);
+  assert.equal(fetchCalls.at(-1), "/api/campaigns/campaign-1");
+  assert.equal(fetchCalls.includes("/api/events"), false);
 });

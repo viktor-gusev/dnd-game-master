@@ -80,10 +80,6 @@ function ensureParticipant(campaign, identityId) {
   }
 }
 
-function eventPayload(operation, related = {}) {
-  return { operation, ...related };
-}
-
 export default class Dnd_Gm_Web_Handler_Api {
   constructor({ dataStore, eventDelivery }) {
     this.dataStore = dataStore || new DataStore();

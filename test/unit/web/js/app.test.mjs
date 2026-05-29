@@ -12,8 +12,10 @@ function makeNode(id = "") {
     value: "",
     textContent: "",
     className: "",
+    hidden: true,
     disabled: false,
     attributes: {},
+    dataset: {},
     children: [],
     listeners: new Map(),
     appendChild(child) { this.children.push(child); return child; },
@@ -68,6 +70,42 @@ test("shared shell resolves identity and tab identity before page controllers st
   assert.equal(document.getElementById("shellError").attributes["aria-label"], "Errors 0");
   assert.equal(document.getElementById("shellDeviceStatus").textContent, "");
   assert.equal(document.getElementById("shellDeviceStatus").attributes["aria-label"], "Device ready");
+});
+
+test("shell panels close when clicking their backdrop", async () => {
+  const document = makeDocument();
+  const shell = await initializeBrowserApplicationShell({
+    document,
+    storage: makeStorage({ "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289", "dnd-gm.identity.nickname": "Alice" }),
+    cryptoApi: { randomUUID: () => "tab-1" },
+    fetchImpl: async () => ({ ok: true, headers: { get: () => "application/json" }, async json() { return { ok: true, data: {} }; } }),
+  });
+
+  shell.openShellMenu();
+  const shellPanel = document.getElementById("shellPanel");
+  assert.equal(shellPanel.hidden, false);
+  await shellPanel.listeners.get("click")({ target: shellPanel });
+  assert.equal(shellPanel.hidden, true);
+
+  const identityDialog = document.getElementById("identityDialog");
+  shell.openIdentityEditor();
+  assert.equal(identityDialog.opened, true);
+  await identityDialog.listeners.get("click")({ target: identityDialog });
+  assert.equal(identityDialog.closed, true);
+});
+
+test("shell updates reflect notification freshness", async () => {
+  const document = makeDocument();
+  const shell = await initializeBrowserApplicationShell({
+    document,
+    storage: makeStorage({ "dnd-gm.identity.uuid": "4d8b6f10-4a8b-48f4-b38c-d5128972e289", "dnd-gm.identity.nickname": "Alice" }),
+    cryptoApi: { randomUUID: () => "tab-1" },
+    fetchImpl: async () => ({ ok: true, headers: { get: () => "application/json" }, async json() { return { ok: true, data: {} }; } }),
+  });
+
+  shell.markUpdatesFresh({ type: "campaign.event.created" });
+  assert.equal(document.getElementById("shellUpdates").attributes["aria-label"], "Updates available");
+  assert.equal(document.getElementById("shellUpdates").dataset.freshness, "campaign.event.created");
 });
 
 test("campaign directory is list-first, hides identity edit from page actions, and opens details through the shell", async () => {

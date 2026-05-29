@@ -27,6 +27,14 @@ function openDeveloperPanel(doc) {
   if (panel) panel.open = true;
 }
 
+function enableBackdropClose(element, close) {
+  if (!element || typeof element.addEventListener !== "function") return;
+  element.addEventListener("click", (event) => {
+    if (event.target !== element) return;
+    close();
+  });
+}
+
 export async function initializeBrowserApplicationShell({
   document: doc = globalThis.document,
   storage = globalThis.localStorage,
@@ -76,6 +84,13 @@ export async function initializeBrowserApplicationShell({
         void shell.eventDelivery.updateCampaignContext(shell.pageContext.campaignId || "");
       }
     },
+    markUpdatesFresh(notification) {
+      const shellUpdates = el("shellUpdates", doc);
+      if (!shellUpdates) return;
+      const label = notification?.type === "campaign.event.created" ? "Updates available" : "Updates";
+      shellUpdates.setAttribute("aria-label", label);
+      shellUpdates.dataset.freshness = notification?.type || "notification";
+    },
     openIdentityEditor() {
       const dialog = el("identityDialog", doc);
       if (!dialog) return;
@@ -120,6 +135,10 @@ export async function initializeBrowserApplicationShell({
     localIdentityId: identity.uuid,
     campaignId: shell.pageContext.campaignId || "",
     fetchImpl,
+    onNotification(notification) {
+      shell.markUpdatesFresh(notification);
+      if (typeof shell.handleNotification === "function") shell.handleNotification(notification);
+    },
     onStateChange(state) {
       shell.setConnectionState(state);
     },
@@ -148,6 +167,13 @@ export async function initializeBrowserApplicationShell({
   if (shellError) shellError.addEventListener("click", () => openDeveloperPanel(doc));
   const shellMenu = el("shellMenu", doc);
   if (shellMenu) shellMenu.addEventListener("click", () => shell.openShellMenu());
+  enableBackdropClose(el("shellPanel", doc), () => {
+    setPanelContent(doc, "", false);
+    if (shellMenu) shellMenu.setAttribute("aria-expanded", "false");
+  });
+  enableBackdropClose(el("identityDialog", doc), () => el("identityDialog", doc)?.close?.());
+  enableBackdropClose(el("createCampaignDialog", doc), () => el("createCampaignDialog", doc)?.close?.());
+  enableBackdropClose(el("campaignDetailsDialog", doc), () => el("campaignDetailsDialog", doc)?.close?.());
   shell.setConnectionState("connected");
 
   if (typeof pageController === "function") {

@@ -14,7 +14,7 @@ export function getOrCreateTabIdentityId(storage = globalThis.sessionStorage, cr
   return created;
 }
 
-export function createEventDeliveryClient({ fetchImpl = globalThis.fetch, eventSourceFactory = (url) => { if (typeof EventSource !== "function") return null; return new EventSource(url); }, tabIdentityId, localIdentityId, campaignId = "", onMessage = () => {}, onStateChange = () => {} }) {
+export function createEventDeliveryClient({ fetchImpl = globalThis.fetch, eventSourceFactory = (url) => { if (typeof EventSource !== "function") return null; return new EventSource(url); }, tabIdentityId, localIdentityId, campaignId = "", onNotification = () => {}, onStateChange = () => {} }) {
   let source = null;
   const connect = () => {
     if (!tabIdentityId || !localIdentityId) return;
@@ -22,7 +22,7 @@ export function createEventDeliveryClient({ fetchImpl = globalThis.fetch, eventS
     source = eventSourceFactory(`/api/event-delivery?tabIdentityId=${encodeURIComponent(tabIdentityId)}&localIdentityId=${encodeURIComponent(localIdentityId)}${campaignId ? `&campaignId=${encodeURIComponent(campaignId)}` : ""}`);
     if (!source) { onStateChange("unavailable"); return; }
     source.onmessage = (event) => {
-      try { onMessage(JSON.parse(event.data)); } catch {}
+      try { onNotification(JSON.parse(event.data)); } catch {}
     };
     source.onerror = () => onStateChange("reconnecting");
     source.onopen = () => onStateChange("connected");

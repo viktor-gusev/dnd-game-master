@@ -61,11 +61,14 @@ export class DeveloperDiagnosticsErrorPanel extends HTMLElement {
   }
 
   connectedCallback() {
+    this.hidden = !this.open;
     this.#installCapture();
+    this.addEventListener("click", this.#onHostClick);
     void this.#ensureResources();
   }
 
   disconnectedCallback() {
+    this.removeEventListener("click", this.#onHostClick);
     this.#removeCapture();
   }
 
@@ -102,6 +105,12 @@ export class DeveloperDiagnosticsErrorPanel extends HTMLElement {
 
   #onUnhandledRejection = (event) => {
     this.#addRecord(summarizeUnhandledRejection(event));
+  };
+
+  #onHostClick = (event) => {
+    if (event.target !== this) return;
+    this.open = false;
+    this.#emit("dgm-dev-error-panel-close", { count: this.#buffer.size });
   };
 
   #addRecord(record) {
@@ -208,16 +217,13 @@ export class DeveloperDiagnosticsErrorPanel extends HTMLElement {
       ${this.#resources.template}
     `;
 
-    const toggle = this.shadowRoot.querySelector(".toggle");
     const panel = this.shadowRoot.querySelector(".panel");
-    const count = this.shadowRoot.querySelector("[data-role='count']");
     const status = this.shadowRoot.querySelector("[data-role='status']");
     const recordsList = this.shadowRoot.querySelector("[data-role='records']");
     const details = this.shadowRoot.querySelector("[data-role='details']");
 
-    toggle?.setAttribute("aria-expanded", String(this.open));
+    this.hidden = !this.open;
     if (panel) panel.hidden = !this.open;
-    if (count) count.textContent = String(this.#buffer.size);
     if (status) status.textContent = this.#statusText;
     if (recordsList) recordsList.innerHTML = listItems || "<li>No records captured.</li>";
     if (details) details.textContent = this.#formatRecordDetails(selectedRecord);
