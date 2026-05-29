@@ -180,6 +180,11 @@ main {
   -webkit-mask-image: url("/assets/icon/database.svg");
 }
 
+.shell-icon-wifi::before {
+  mask-image: url("/assets/icon/wifi.svg");
+  -webkit-mask-image: url("/assets/icon/wifi.svg");
+}
+
 .shell-icon-user::before {
   mask-image: url("/assets/icon/user.svg");
   -webkit-mask-image: url("/assets/icon/user.svg");
@@ -192,6 +197,22 @@ main {
 
 .shell-chip-quiet {
   color: var(--muted);
+}
+
+.shell-connection-state {
+  color: var(--danger);
+}
+
+.shell-connection-state[data-state="connected"] {
+  color: #7ddc8c;
+}
+
+.shell-connection-state[data-state="reconnecting"] {
+  color: #f3cf6b;
+}
+
+.shell-connection-state[data-state="not-connected"] {
+  color: var(--danger);
 }
 
 .shell-chip-action,

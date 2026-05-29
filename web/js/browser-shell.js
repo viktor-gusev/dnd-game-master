@@ -15,6 +15,14 @@ function setValue(node, value) {
   if (node && "value" in node) node.value = value;
 }
 
+function setConnectionStateControl(doc, state) {
+  const control = el("shellConnectionState", doc);
+  if (!control) return;
+  const normalized = state === "connected" || state === "reconnecting" ? state : "not-connected";
+  control.dataset.state = normalized;
+  control.setAttribute("aria-label", `Connection ${normalized}`);
+}
+
 function setPanelContent(doc, content, open = false) {
   const panel = el("shellPanel", doc);
   if (!panel) return;
@@ -66,16 +74,16 @@ export async function initializeBrowserApplicationShell({
     pageError(message) {
       const shellLogs = el("shellLogs", doc);
       if (shellLogs) shellLogs.setAttribute("aria-label", shell.errorCount ? `Errors ${shell.errorCount}` : "Errors 0");
-      if (message) setText(el("shellConnectionState", doc), message);
+      if (message) setConnectionStateControl(doc, "not-connected");
     },
     recordShellError(message) {
       shell.errorCount += 1;
       const shellLogs = el("shellLogs", doc);
       if (shellLogs) shellLogs.setAttribute("aria-label", `Errors ${shell.errorCount}`);
-      if (message) setText(el("shellConnectionState", doc), message);
+      if (message) setConnectionStateControl(doc, "not-connected");
     },
     setConnectionState(state) {
-      setText(el("shellConnectionState", doc), state || "");
+      setConnectionStateControl(doc, state);
     },
     setPageContext(nextContext) {
       shell.pageContext = { ...shell.pageContext, ...nextContext };
@@ -153,6 +161,7 @@ export async function initializeBrowserApplicationShell({
   if (shellProfile) shellProfile.setAttribute("aria-label", identity.nickname);
   const shellLogs = el("shellLogs", doc);
   if (shellLogs) shellLogs.setAttribute("aria-label", "Errors 0");
+  setConnectionStateControl(doc, "reconnecting");
 
   const footerCampaigns = el("footerCampaigns", doc);
   if (footerCampaigns) footerCampaigns.addEventListener("click", () => { locationApi.href = "/"; });
