@@ -13,3 +13,9 @@ test("application shell stays compact and mobile footer hides on desktop", async
   assert.match(source, /\.application-footer\s*\{[\s\S]*position:\s*sticky;[\s\S]*display:\s*flex;/);
   assert.match(source, /@media \(min-width:\s*720px\)\s*\{[\s\S]*\.application-footer\s*\{[\s\S]*display:\s*none;/);
 });
+
+test("preview and workshop text wrap instead of overflowing horizontally", async () => {
+  const source = await readFile(cssUrl, "utf8");
+
+  assert.match(source, /\.workshop-section pre,\s*#publicPreview pre\s*\{[\s\S]*white-space:\s*pre-wrap;[\s\S]*overflow-wrap:\s*anywhere;[\s\S]*word-break:\s*break-word;/);
+});

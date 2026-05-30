@@ -93,6 +93,19 @@ export function createAIPrepConversationPanel(shell, binding, options = {}) {
       status.textContent = "Enter a message first.";
       return;
     }
+    if (!text(binding.targetId) && typeof options.ensureTargetId === "function") {
+      status.textContent = "Saving target first.";
+      const ensuredTargetId = await options.ensureTargetId();
+      if (!text(ensuredTargetId)) {
+        status.textContent = "Failed to save target before starting AI session.";
+        return;
+      }
+      binding.targetId = ensuredTargetId;
+    }
+    if (!text(binding.targetId)) {
+      status.textContent = "Save the section before starting AI.";
+      return;
+    }
     if (!sessionState.session) {
       status.textContent = "Creating session.";
       const sessionResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions`, {

@@ -91,8 +91,10 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
   if (state.editingSection === group.key) {
     const form = doc.createElement("form");
     form.className = "workshop-section-form";
+    let saveInProgress = false;
     async function submitSection(event) {
       event?.preventDefault?.();
+      saveInProgress = true;
       const nextProfile = clone(state.draftProfile || state.sheet?.structuredProfile || structuredProfileFallback(null));
       for (const [path] of group.fields) {
         const field = form.elements.namedItem(path);
@@ -110,13 +112,17 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
           body: JSON.stringify({ structuredProfile: nextProfile }),
         });
       if (!response.ok) {
+        saveInProgress = false;
         if (typeof shell.pageError === "function") shell.pageError(response.error?.message || "Failed to save section.");
         const status = el("status", doc);
         if (status) status.textContent = response.error?.message || "Failed to save section.";
-        return;
+        return "";
       }
       if (typeof shell.pageError === "function") shell.pageError("");
-      onRefresh({ editingSection: "", draftProfile: null, sheet: response.data.characterSheet, sheetId: response.data.characterSheet?.sheetId || sheetId, statusMessage: "Section saved." });
+      saveInProgress = false;
+      const nextSheetId = response.data.characterSheet?.sheetId || sheetId;
+      onRefresh({ editingSection: "", draftProfile: null, sheet: response.data.characterSheet, sheetId: nextSheetId, statusMessage: "Section saved." });
+      return nextSheetId;
     }
     const actions = doc.createElement("div");
     actions.className = "workshop-actions";
@@ -139,7 +145,15 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
         mode: "text-draft-generation",
         policyProfile: "player-character-section-discussion",
         outputKind: "draft",
-      }, { title: `${group.title} AI session`, placeholder: `Discuss ${group.title.toLowerCase()}.` });
+      }, {
+        title: `${group.title} AI session`,
+        placeholder: `Discuss ${group.title.toLowerCase()}.`,
+        ensureTargetId: async () => {
+          if (sheetId) return sheetId;
+          if (saveInProgress) return "";
+          return submitSection({ preventDefault() {} });
+        },
+      });
       card.appendChild(aiPanel);
     }
     form.appendChild(actions);
