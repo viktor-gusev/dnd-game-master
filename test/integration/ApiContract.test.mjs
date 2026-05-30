@@ -61,3 +61,36 @@ test("campaign API supports create join brief events credits and deletion", asyn
     await cleanup();
   }
 });
+
+test("character sheet reads project draft data by role and keep private fields hidden from other players", async () => {
+  const port = await getFreePort();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dnd-gm-character-"));
+  process.env.DND_GM_DATA_ROOT = path.join(root, "data");
+  const child = await startApp(port, { DND_GM_DATA_ROOT: path.join(root, "data") });
+  const cleanup = () => new Promise((resolve) => child.once("exit", resolve));
+  try {
+    let res = await fetch(`http://127.0.0.1:${port}/api/identity/local`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ uuid: "4d8b6f10-4a8b-48f4-b38c-d5128972e289", nickname: "Alice" }) });
+    let json = await res.json();
+    const alice = json.data.identity.uuid;
+    res = await fetch(`http://127.0.0.1:${port}/api/campaigns`, { method: "POST", headers: { "content-type": "application/json", "x-local-identity-id": alice }, body: JSON.stringify({ title: "Workshop" }) });
+    json = await res.json();
+    const campaignId = json.data.campaignId;
+    res = await fetch(`http://127.0.0.1:${port}/api/campaigns/${campaignId}/character-sheets`, { method: "POST", headers: { "content-type": "application/json", "x-local-identity-id": alice }, body: JSON.stringify({ structuredProfile: { identity: { name: "Asha" }, gmHooks: "Hidden", playerIntent: { playStyle: "Support" } } }) });
+    json = await res.json();
+    const sheetId = json.data.characterSheet.sheetId;
+    res = await fetch(`http://127.0.0.1:${port}/api/identity/local`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ uuid: "c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", nickname: "Bob" }) });
+    json = await res.json();
+    const bob = json.data.identity.uuid;
+    res = await fetch(`http://127.0.0.1:${port}/api/campaigns/${campaignId}/join`, { method: "POST", headers: { "content-type": "application/json", "x-local-identity-id": bob }, body: "{}" });
+    json = await res.json();
+    assert.equal(json.ok, true);
+    res = await fetch(`http://127.0.0.1:${port}/api/campaigns/${campaignId}/character-sheets/${sheetId}`, { headers: { "x-local-identity-id": bob } });
+    json = await res.json();
+    assert.equal(json.ok, true);
+    assert.equal(json.data.characterSheet.structuredProfile.gmHooks, undefined);
+    assert.equal(json.data.characterSheet.structuredProfile.playerIntent, undefined);
+  } finally {
+    child.kill("SIGTERM");
+    await cleanup();
+  }
+});

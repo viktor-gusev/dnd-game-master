@@ -71,6 +71,62 @@ test("loadCampaignProjection resolves a joined player from the loaded participan
   assert.equal(projection.participants.some((participant) => participant.identityId === bob.id), true);
 });
 
+test("character sheet projections preserve private and public boundaries", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Profile campaign" });
+  await store.joinCampaign(created.campaignId, bob);
+  const sheet = await store.createCharacterSheet(created.campaignId, {
+    structuredProfile: {
+      identity: { name: "Asha" },
+      appearance: { text: "Blue cloak" },
+      personality: { traits: "Calm" },
+      backstory: { text: "A wanderer" },
+      campaignIntegration: { reasonToJoin: "Seek allies" },
+      mechanics: { text: "Free-form" },
+      publicNotes: "Visible note",
+      gmHooks: "Private hook",
+      playerIntent: { playStyle: "Support", themes: "Mystery", aiHelpMode: "Ideas" },
+    },
+  }, alice);
+  await store.createCharacterSheetAsset(created.campaignId, sheet.sheetId, {
+    kind: "image",
+    source: "external",
+    purpose: "portrait",
+    externalUrl: "https://example.com/portrait.png",
+    publishOnApproval: false,
+    metadata: { label: "private portrait" },
+  }, alice);
+  const ownerView = await store.getCharacterSheetView(created.campaignId, sheet.sheetId, alice);
+  const otherView = await store.getCharacterSheetView(created.campaignId, sheet.sheetId, bob);
+  assert.equal(ownerView.structuredProfile.gmHooks, "Private hook");
+  assert.equal(ownerView.structuredProfile.playerIntent.playStyle, "Support");
+  assert.equal(otherView.structuredProfile.gmHooks, undefined);
+  assert.equal(otherView.structuredProfile.playerIntent, undefined);
+  assert.equal(otherView.assetRefs[0].metadata, undefined);
+});
+
+test("player asset metadata links are owner-bound and approval only publishes marked assets", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Asset campaign" });
+  await store.joinCampaign(created.campaignId, bob);
+  const sheet = await store.createCharacterSheet(created.campaignId, { structuredProfile: { identity: { name: "Asha" } } }, alice);
+  const asset = await store.createCharacterSheetAsset(created.campaignId, sheet.sheetId, {
+    kind: "image",
+    source: "external",
+    purpose: "portrait",
+    externalUrl: "https://example.com/portrait.png",
+    publishOnApproval: true,
+  }, alice);
+  await assert.rejects(() => store.createCharacterSheetAsset(created.campaignId, sheet.sheetId, { kind: "image", source: "external", purpose: "reference" }, bob), /Only the owner/);
+  await store.approveCharacterSheet(created.campaignId, sheet.sheetId, alice);
+  const current = await store.getCharacterSheetView(created.campaignId, sheet.sheetId, bob);
+  assert.equal(current.assetRefs.some((item) => item.assetId === asset.assetId), true);
+});
+
 test("file store cleanup removes expired campaigns and the 10-day boundary remains", async () => {
   const now = () => new Date("2026-05-20T00:00:00.000Z");
   const { store } = await createStore({ now });

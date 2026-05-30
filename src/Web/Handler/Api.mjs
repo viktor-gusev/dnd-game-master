@@ -240,11 +240,10 @@ export default class Dnd_Gm_Web_Handler_Api {
 
     this.listCharacterSheets = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      const current = await this.dataStore.loadCampaign(campaignId, identity.id);
-      if (!current) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
-      ensureParticipant(current, identity.id);
+      const sheets = await this.dataStore.listCharacterSheetsView(campaignId, identity);
+      if (!sheets) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
       complete(context);
-      json(res, 200, success({ characterSheets: current.characterSheets }));
+      json(res, 200, success({ characterSheets: sheets }));
     };
 
     this.postCharacterSheet = async (campaignId, req, res, context) => {
@@ -329,6 +328,40 @@ export default class Dnd_Gm_Web_Handler_Api {
       json(res, 200, success({ aiDraft: rejected }));
     };
 
+    this.getCharacterSheet = async (campaignId, sheetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const sheet = await this.dataStore.getCharacterSheetView(campaignId, sheetId, identity);
+      if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
+      complete(context);
+      json(res, 200, success({ characterSheet: sheet }));
+    };
+
+    this.postCharacterSheetAsset = async (campaignId, sheetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const asset = await this.dataStore.createCharacterSheetAsset(campaignId, sheetId, body, identity);
+      if (!asset) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
+      complete(context);
+      json(res, 200, success({ asset }));
+    };
+
+    this.patchCharacterSheetAsset = async (campaignId, sheetId, assetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const asset = await this.dataStore.updateCharacterSheetAsset(campaignId, sheetId, assetId, body, identity);
+      if (!asset) throw Object.assign(new Error("Unknown character sheet asset id."), { code: "unknown_character_sheet_asset" });
+      complete(context);
+      json(res, 200, success({ asset }));
+    };
+
+    this.deleteCharacterSheetAsset = async (campaignId, sheetId, assetId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const deleted = await this.dataStore.deleteCharacterSheetAsset(campaignId, sheetId, assetId, identity);
+      if (!deleted) throw Object.assign(new Error("Unknown character sheet asset id."), { code: "unknown_character_sheet_asset" });
+      complete(context);
+      json(res, 200, success({ deleted: true }));
+    };
+
     this.getEventDeliveryStream = async (req, res, context) => {
       res.setHeader("cache-control", "no-store");
       res.setHeader("pragma", "no-cache");
@@ -389,14 +422,20 @@ export default class Dnd_Gm_Web_Handler_Api {
           if (tail === "character-sheets" && method === "GET") return await this.listCharacterSheets(campaignId, req, res, context);
           if (tail === "character-sheets" && method === "POST") return await this.postCharacterSheet(campaignId, req, res, context);
 
-          const subMatch = tail.match(/^(character-sheets|ai\/drafts)\/([^/]+)(?:\/(approve|return-to-draft|regenerate|accept|reject))?$/);
+          const subMatch = tail.match(/^(character-sheets|ai\/drafts)\/([^/]+)(?:\/(assets)\/([^/]+)|\/(approve|return-to-draft|regenerate|accept|reject))?$/);
           if (subMatch) {
             const collection = subMatch[1];
             const itemId = subMatch[2];
-            const action = subMatch[3] || "";
+            const assetCollection = subMatch[3] || "";
+            const assetId = subMatch[4] || "";
+            const action = subMatch[5] || "";
             if (collection === "character-sheets" && !action && method === "PATCH") return await this.patchCharacterSheet(campaignId, itemId, req, res, context);
+            if (collection === "character-sheets" && !action && !assetCollection && method === "GET") return await this.getCharacterSheet(campaignId, itemId, req, res, context);
             if (collection === "character-sheets" && action === "approve" && method === "POST") return await this.approveCharacterSheet(campaignId, itemId, req, res, context);
             if (collection === "character-sheets" && action === "return-to-draft" && method === "POST") return await this.returnCharacterSheet(campaignId, itemId, req, res, context);
+            if (collection === "character-sheets" && assetCollection === "assets" && method === "POST") return await this.postCharacterSheetAsset(campaignId, itemId, req, res, context);
+            if (collection === "character-sheets" && assetCollection === "assets" && method === "PATCH") return await this.patchCharacterSheetAsset(campaignId, itemId, assetId, req, res, context);
+            if (collection === "character-sheets" && assetCollection === "assets" && method === "DELETE") return await this.deleteCharacterSheetAsset(campaignId, itemId, assetId, req, res, context);
             if (collection === "ai/drafts" && !action && method === "GET") return await this.getAIDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && !action && method === "PATCH") return await this.patchAIDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && action === "regenerate" && method === "POST") return await this.regenerateAIDraft(campaignId, itemId, req, res, context);

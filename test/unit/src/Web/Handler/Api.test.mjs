@@ -44,11 +44,15 @@ function makeDataStore() {
     async listCredits() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async listMaterials() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async createMaterial() { return { materialId: "mat_1" }; },
-    async listCharacterSheets() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
+    async listCharacterSheetsView() { return [{ sheetId: "sheet_1", title: "Character", state: "draft" }]; },
+    async getCharacterSheetView() { return { sheetId: "sheet_1", state: "draft", structuredProfile: { identity: { name: "A" }, appearance: {}, personality: {}, backstory: {}, campaignIntegration: {}, mechanics: {}, publicNotes: "" } }; },
     async createCharacterSheet() { return { sheetId: "sheet_1", state: "draft" }; },
     async updateCharacterSheet() { return { sheetId: "sheet_1", state: "draft" }; },
     async approveCharacterSheet() { return { sheetId: "sheet_1", state: "approved" }; },
     async returnCharacterSheetToDraft() { return { sheetId: "sheet_1", state: "draft" }; },
+    async createCharacterSheetAsset() { return { assetId: "asset_1" }; },
+    async updateCharacterSheetAsset() { return { assetId: "asset_1" }; },
+    async deleteCharacterSheetAsset() { return true; },
     async createAIDraft() { return { aiDraft: { draftId: "draft_1", state: "draft" } }; },
     async getAIDraft() { return { draftId: "draft_1", state: "draft" }; },
     async updateAIDraft() { return { draftId: "draft_1", state: "draft" }; },
@@ -94,6 +98,16 @@ test("GET /api/campaigns/:campaignId allows participant reads", async () => {
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
   assert.match(context.response.body, /"workspaceKind":"player workspace"/);
+});
+
+test("GET /api/campaigns/:campaignId/character-sheets/:sheetId returns role-projected profile data", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1/character-sheets/sheet_1";
+  context.request.headers["x-local-identity-id"] = "player-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"structuredProfile":/);
 });
 
 test("POST /api/campaigns creates a campaign for the current Game Master", async () => {

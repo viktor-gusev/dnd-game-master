@@ -28,6 +28,101 @@ function normalizeNickname(nickname) {
 
 const RETENTION_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
 
+const STRUCTURED_PROFILE_DEFAULTS = Object.freeze({
+  identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
+  appearance: { text: "" },
+  personality: { traits: "", motivation: "", fears: "", mannerisms: "", speechStyle: "" },
+  backstory: { text: "", importantNpc: "", openHooks: "" },
+  campaignIntegration: { reasonToJoin: "", linksToOtherCharacters: "", gmUsableHooks: "", boundaries: "" },
+  mechanics: { text: "" },
+  publicNotes: "",
+  gmHooks: "",
+  playerIntent: { playStyle: "", themes: "", aiHelpMode: "" },
+});
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeStructuredProfile(profile = {}) {
+  const next = clone(STRUCTURED_PROFILE_DEFAULTS);
+  const source = profile && typeof profile === "object" ? profile : {};
+  for (const [section, defaults] of Object.entries(STRUCTURED_PROFILE_DEFAULTS)) {
+    if (typeof defaults === "string") {
+      next[section] = typeof source[section] === "string" ? source[section] : defaults;
+      continue;
+    }
+    const input = source[section] && typeof source[section] === "object" ? source[section] : {};
+    next[section] = { ...defaults };
+    for (const key of Object.keys(defaults)) next[section][key] = typeof input[key] === "string" ? input[key] : defaults[key];
+  }
+  return next;
+}
+
+function assetVisibilityForOwner(asset, isOwnerOrGM) {
+  if (isOwnerOrGM) return asset;
+  return null;
+}
+
+function publicAssetProjection(asset) {
+  if (!asset || asset.visibilityAudience === "GM-only") return null;
+  return {
+    assetId: asset.assetId,
+    campaignId: asset.campaignId,
+    kind: asset.kind,
+    source: asset.source,
+    purpose: asset.purpose,
+    ownerRole: asset.ownerRole,
+    ownerIdentityId: asset.ownerIdentityId,
+    visibilityAudience: asset.visibilityAudience,
+    publicationState: asset.publicationState,
+    publishOnApproval: asset.publishOnApproval,
+    linkedSheetId: asset.linkedSheetId,
+  };
+}
+
+function normalizeAsset(asset = {}, defaults = {}) {
+  const now = defaults.now || new Date().toISOString();
+  return {
+    assetId: asset.assetId || `asset_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
+    campaignId: asset.campaignId || defaults.campaignId,
+    kind: asset.kind || "other",
+    source: asset.source || "external",
+    purpose: asset.purpose || "other",
+    ownerRole: asset.ownerRole || defaults.ownerRole || "player",
+    ownerIdentityId: asset.ownerIdentityId || defaults.ownerIdentityId || "",
+    linkedSheetId: asset.linkedSheetId || "",
+    linkedMaterialIds: Array.isArray(asset.linkedMaterialIds) ? asset.linkedMaterialIds : [],
+    mediaType: asset.mediaType || "",
+    originalName: asset.originalName || "",
+    storagePath: asset.storagePath || "",
+    externalUrl: asset.externalUrl || "",
+    visibilityAudience: asset.visibilityAudience || "specific players",
+    publicationState: asset.publicationState || "draft",
+    publishOnApproval: asset.publishOnApproval === true,
+    metadata: asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {},
+    createdAt: asset.createdAt || now,
+    updatedAt: asset.updatedAt || now,
+  };
+}
+
+function normalizeSheet(sheet = {}, campaignId) {
+  return {
+    sheetId: sheet.sheetId,
+    campaignId,
+    playerIdentityId: sheet.playerIdentityId || sheet.ownerIdentityId || "",
+    ownerIdentityId: sheet.ownerIdentityId || sheet.playerIdentityId || "",
+    title: sheet.title || "Character Sheet",
+    state: sheet.state || "draft",
+    structuredProfile: normalizeStructuredProfile(sheet.structuredProfile || {}),
+    assetRefs: Array.isArray(sheet.assetRefs) ? sheet.assetRefs : [],
+    primaryPortraitAssetId: sheet.primaryPortraitAssetId || "",
+    tokenAssetId: sheet.tokenAssetId || "",
+    createdAt: sheet.createdAt || "",
+    updatedAt: sheet.updatedAt || "",
+  };
+}
+
 async function ensureDir(dir) {
   const fs = await import("node:fs/promises");
   await fs.mkdir(dir, { recursive: true });
@@ -151,7 +246,7 @@ export default class Dnd_Gm_Store_File_Data {
       brief: current.brief || {},
       materials: Array.isArray(current.materials) ? current.materials : [],
       assets: Array.isArray(current.assets) ? current.assets : [],
-      characterSheets: Array.isArray(current.characterSheets) ? current.characterSheets : [],
+      characterSheets: Array.isArray(current.characterSheets) ? current.characterSheets.map((sheet) => normalizeSheet(sheet, current.campaign.campaignId)) : [],
       aiDrafts: Array.isArray(current.aiDrafts) ? current.aiDrafts : [],
       events: Array.isArray(current.events) ? current.events : [],
       credits: Array.isArray(current.credits) ? current.credits : [],
@@ -237,7 +332,7 @@ export default class Dnd_Gm_Store_File_Data {
         participants: Array.isArray(current.participants) ? current.participants : [],
         materials: isGM ? (Array.isArray(current.materials) ? current.materials : []) : [],
         assets: isGM ? (Array.isArray(current.assets) ? current.assets : []) : [],
-        characterSheets: (Array.isArray(current.characterSheets) ? current.characterSheets : []).filter((sheet) => isGM || sheet.playerIdentityId === identityId || sheet.state === "approved"),
+        characterSheets: (Array.isArray(current.characterSheets) ? current.characterSheets.map((sheet) => normalizeSheet(sheet, current.campaign.campaignId)) : []).filter((sheet) => isGM || sheet.playerIdentityId === identityId || sheet.state === "approved"),
         aiDrafts: isGM ? (Array.isArray(current.aiDrafts) ? current.aiDrafts : []) : (Array.isArray(current.aiDrafts) ? current.aiDrafts : []).filter((draft) => draft.ownerIdentityId === identityId || !draft.ownerIdentityId),
         events: Array.isArray(current.events) ? current.events : [],
         credits: isGM ? (Array.isArray(current.credits) ? current.credits : []) : [],
@@ -327,6 +422,10 @@ export default class Dnd_Gm_Store_File_Data {
         title: String(body.title || "").trim() || "Character Sheet",
         state: "draft",
         content: String(body.content || "").trim(),
+        structuredProfile: normalizeStructuredProfile(body.structuredProfile || {}),
+        assetRefs: Array.isArray(body.assetRefs) ? body.assetRefs : [],
+        primaryPortraitAssetId: typeof body.primaryPortraitAssetId === "string" ? body.primaryPortraitAssetId : "",
+        tokenAssetId: typeof body.tokenAssetId === "string" ? body.tokenAssetId : "",
         createdAt: this.timestamp(),
         updatedAt: this.timestamp(),
       };
@@ -341,9 +440,13 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const sheet = current.characterSheets.find((item) => item.sheetId === sheetId);
       if (!sheet) return null;
-      if (sheet.playerIdentityId !== identity.id && current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the owner or Game Master may edit this sheet."), { code: "forbidden" });
+      if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may edit this draft sheet."), { code: "forbidden" });
       if (typeof body.title === "string") sheet.title = body.title.trim() || sheet.title;
       if (typeof body.content === "string") sheet.content = body.content;
+      if (body.structuredProfile) sheet.structuredProfile = normalizeStructuredProfile(body.structuredProfile);
+      if (Array.isArray(body.assetRefs)) sheet.assetRefs = body.assetRefs;
+      if (typeof body.primaryPortraitAssetId === "string") sheet.primaryPortraitAssetId = body.primaryPortraitAssetId;
+      if (typeof body.tokenAssetId === "string") sheet.tokenAssetId = body.tokenAssetId;
       sheet.updatedAt = this.timestamp();
       await writeJson(this.characterSheetsJson(campaignId), { characterSheets: current.characterSheets });
       await this.touchCampaign(campaignId, identity.id, "character.sheet.updated", { sheetId });
@@ -357,6 +460,9 @@ export default class Dnd_Gm_Store_File_Data {
       if (!sheet) return null;
       if (current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may approve character sheets."), { code: "forbidden" });
       sheet.state = "approved";
+      for (const asset of current.assets) {
+        if (asset.linkedSheetId === sheetId && asset.publishOnApproval) asset.publicationState = "published";
+      }
       sheet.updatedAt = this.timestamp();
       await writeJson(this.characterSheetsJson(campaignId), { characterSheets: current.characterSheets });
       await this.touchCampaign(campaignId, identity.id, "character.sheet.approved", { sheetId });
@@ -469,6 +575,125 @@ export default class Dnd_Gm_Store_File_Data {
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
       await this.touchCampaign(campaignId, identity.id, "ai.draft.rejected", { draftId });
       return draft;
+    };
+
+    this.listCharacterSheetsView = async (campaignId, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      const isParticipant = current.participants.some((participant) => participant.identityId === identity.id);
+      if (!isGM && !isParticipant) return null;
+      const sheets = (current.characterSheets || []).map((sheet) => normalizeSheet(sheet, campaignId));
+      return sheets.map((sheet) => ({
+        sheetId: sheet.sheetId,
+        title: sheet.title,
+        state: sheet.state,
+        playerIdentityId: sheet.playerIdentityId,
+        ownerIdentityId: sheet.ownerIdentityId,
+        summary: {
+          name: sheet.structuredProfile.identity.name,
+          shortDescription: sheet.structuredProfile.identity.shortDescription,
+        },
+      }));
+    };
+
+    this.getCharacterSheetView = async (campaignId, sheetId, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const sheet = normalizeSheet(current.characterSheets.find((item) => item.sheetId === sheetId), campaignId);
+      if (!sheet.sheetId) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      const isOwner = sheet.playerIdentityId === identity.id;
+      const isParticipant = current.participants.some((participant) => participant.identityId === identity.id);
+      if (!isGM && !isOwner && !isParticipant) return null;
+      const assets = (current.assets || []).filter((asset) => asset.linkedSheetId === sheetId);
+      const publicProfile = {
+        identity: sheet.structuredProfile.identity,
+        appearance: sheet.structuredProfile.appearance,
+        personality: sheet.structuredProfile.personality,
+        backstory: sheet.structuredProfile.backstory,
+        campaignIntegration: sheet.structuredProfile.campaignIntegration,
+        mechanics: sheet.structuredProfile.mechanics,
+        publicNotes: sheet.structuredProfile.publicNotes,
+      };
+      const privateProfile = {
+        gmHooks: sheet.structuredProfile.gmHooks,
+        playerIntent: sheet.structuredProfile.playerIntent,
+      };
+      const visibleAssets = assets.map(publicAssetProjection).filter(Boolean);
+      const ownerAssets = assets.map((asset) => (isGM || isOwner ? normalizeAsset(asset, { campaignId, ownerIdentityId: sheet.playerIdentityId, ownerRole: "player" }) : null)).filter(Boolean);
+      return {
+        sheetId: sheet.sheetId,
+        state: sheet.state,
+        playerIdentityId: sheet.playerIdentityId,
+        ownerIdentityId: sheet.ownerIdentityId,
+        title: sheet.title,
+        structuredProfile: isGM || isOwner ? { ...publicProfile, ...privateProfile } : publicProfile,
+        assetRefs: isGM || isOwner ? ownerAssets : visibleAssets,
+        primaryPortraitAssetId: sheet.primaryPortraitAssetId,
+        tokenAssetId: sheet.tokenAssetId,
+      };
+    };
+
+    this.createCharacterSheetAsset = async (campaignId, sheetId, body, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const sheet = current.characterSheets.find((item) => item.sheetId === sheetId);
+      if (!sheet) return null;
+      if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may add assets to this draft sheet."), { code: "forbidden" });
+      const asset = normalizeAsset({
+        campaignId,
+        ownerIdentityId: identity.id,
+        ownerRole: "player",
+        kind: body.kind,
+        source: body.source,
+        purpose: body.purpose,
+        linkedSheetId: sheetId,
+        mediaType: body.mediaType,
+        originalName: body.originalName,
+        storagePath: body.storagePath,
+        externalUrl: body.externalUrl,
+        visibilityAudience: body.visibilityAudience || "specific players",
+        publicationState: body.publicationState || "draft",
+        publishOnApproval: body.publishOnApproval === true,
+        metadata: body.metadata,
+      }, { campaignId, ownerIdentityId: identity.id, ownerRole: "player", now: this.timestamp() });
+      current.assets.push(asset);
+      await writeJson(this.assetsJson(campaignId), { assets: current.assets });
+      await this.touchCampaign(campaignId, identity.id, "asset.created", { assetId: asset.assetId, sheetId });
+      return asset;
+    };
+
+    this.updateCharacterSheetAsset = async (campaignId, sheetId, assetId, body, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const sheet = current.characterSheets.find((item) => item.sheetId === sheetId);
+      const asset = current.assets.find((item) => item.assetId === assetId && item.linkedSheetId === sheetId);
+      if (!sheet || !asset) return null;
+      if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may update this draft asset."), { code: "forbidden" });
+      if (typeof body.purpose === "string") asset.purpose = body.purpose;
+      if (typeof body.publishOnApproval === "boolean") asset.publishOnApproval = body.publishOnApproval;
+      if (typeof body.visibilityAudience === "string") asset.visibilityAudience = body.visibilityAudience;
+      asset.updatedAt = this.timestamp();
+      await writeJson(this.assetsJson(campaignId), { assets: current.assets });
+      await this.touchCampaign(campaignId, identity.id, "asset.updated", { assetId, sheetId });
+      return asset;
+    };
+
+    this.deleteCharacterSheetAsset = async (campaignId, sheetId, assetId, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const sheet = current.characterSheets.find((item) => item.sheetId === sheetId);
+      if (!sheet) return null;
+      if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may remove this draft asset."), { code: "forbidden" });
+      current.assets = current.assets.filter((item) => !(item.assetId === assetId && item.linkedSheetId === sheetId));
+      sheet.assetRefs = (sheet.assetRefs || []).filter((ref) => ref !== assetId);
+      if (sheet.primaryPortraitAssetId === assetId) sheet.primaryPortraitAssetId = "";
+      if (sheet.tokenAssetId === assetId) sheet.tokenAssetId = "";
+      await writeJson(this.assetsJson(campaignId), { assets: current.assets });
+      await writeJson(this.characterSheetsJson(campaignId), { characterSheets: current.characterSheets });
+      await this.touchCampaign(campaignId, identity.id, "asset.deleted", { assetId, sheetId });
+      return true;
     };
 
     this.deleteCampaign = async (campaignId) => {
