@@ -131,38 +131,16 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
     actions.appendChild(save);
     actions.appendChild(cancel);
     if (shell.pageContext.kind === "player workspace") {
-      const ask = doc.createElement("button");
-      ask.type = "button";
-      ask.textContent = "Ask AI";
-      ask.addEventListener("click", async () => {
-        const candidateText = text(valueFor(state.draftProfile || state.sheet?.structuredProfile || {}, group.fields[0][0]));
-        const sessionResponse = await shell.api(`/api/campaigns/${state.campaignId}/ai/sessions`, {
-          method: "POST",
-          operation: "create-player-ai-session",
-          body: JSON.stringify({
-            title: `${group.title} AI session`,
-            targetKind: "character-profile-section",
-            targetId: sheetId,
-            sectionKey: group.fields[0][0],
-            mode: "text-draft-generation",
-            policyProfile: "player-character-section-discussion",
-          }),
-        });
-        if (!sessionResponse.ok) return shell.pageError(sessionResponse.error?.message || "Failed to create AI session.");
-        const messageResponse = await shell.api(`/api/campaigns/${state.campaignId}/ai/sessions/${sessionResponse.data.session.id}/messages`, {
-          method: "POST",
-          operation: "run-player-ai-session",
-          body: JSON.stringify({
-            clientRequestId: crypto.randomUUID(),
-            contentType: "text",
-            operation: "text-draft-generation",
-            text: candidateText,
-          }),
-        });
-        if (!messageResponse.ok) return shell.pageError(messageResponse.error?.message || "Failed to run AI session.");
-        onRefresh({ statusMessage: "AI suggestion created." });
-      });
-      actions.insertBefore(ask, save);
+      const aiPanel = createAIPrepConversationPanel(shell, {
+        campaignId: state.campaignId,
+        targetKind: "character-profile-section",
+        targetId: sheetId,
+        sectionKey: group.fields[0][0],
+        mode: "text-draft-generation",
+        policyProfile: "player-character-section-discussion",
+        outputKind: "draft",
+      }, { title: `${group.title} AI session`, placeholder: `Discuss ${group.title.toLowerCase()}.` });
+      card.appendChild(aiPanel);
     }
     form.appendChild(actions);
     for (const [path, label] of group.fields) {
@@ -368,3 +346,4 @@ export async function initializeWorkspaceApp(shell, kind) {
   if (status) status.textContent = "Loading workspace.";
   await refresh();
 }
+import { createAIPrepConversationPanel } from "./aiprep-conversation-panel.js";

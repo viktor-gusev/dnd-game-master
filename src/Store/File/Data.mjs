@@ -48,6 +48,36 @@ const AI_POLICY_PROFILES = Object.freeze({
   "gm-image-material-prep": { ownerRole: "game_master" },
 });
 
+const AI_TARGET_KINDS = new Set([
+  "character-profile-section",
+  "character-sheet-section",
+  "campaign-brief",
+  "campaign-material",
+  "npc-material",
+  "location-material",
+  "handout",
+  "map",
+  "asset-task",
+]);
+
+const AI_MODES = new Set([
+  "text-discussion",
+  "text-draft-generation",
+  "image-prompt-discussion",
+  "image-generation",
+  "image-editing",
+  "summary",
+]);
+
+const AI_OUTPUT_KINDS = new Set(["message", "draft", "asset"]);
+
+function requireKnownAiValue(field, value, allowed) {
+  if (!value) return "";
+  const normalized = String(value).trim();
+  if (!allowed.has(normalized)) throw Object.assign(new Error(`Unsupported ${field}.`), { code: "invalid_input" });
+  return normalized;
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -63,6 +93,10 @@ function stableStringify(value) {
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+function isUserVisibleAiMessage(message) {
+  return message && (message.role === "user" || message.role === "assistant");
 }
 
 function safeInt(value, fallback = 0) {
@@ -239,6 +273,7 @@ export default class Dnd_Gm_Store_File_Data {
     this.aiThreadsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-threads/ai-threads.json`;
     this.aiMessagesJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-messages/ai-messages.json`;
     this.aiRunsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-runs/ai-runs.json`;
+    this.aiRunLogJson = (campaignId, sessionId, runId) => `${this.campaignRoot(campaignId)}/ai/logs/${sessionId}/${runId}.json`;
     this.aiAssetsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-assets/ai-assets.json`;
     this.aiIdempotencyJson = (campaignId, identityId, endpointKey, clientRequestId) => `${this.campaignRoot(campaignId)}/ai/idempotency/${identityId}/${endpointKey}/${clientRequestId}.json`;
     this.walletJson = (campaignId) => `${this.campaignRoot(campaignId)}/credits/wallet.json`;
@@ -313,6 +348,22 @@ export default class Dnd_Gm_Store_File_Data {
         credits: await readNdjson(this.creditsNdjson(campaignId)),
         usage: await readNdjson(this.usageNdjson(campaignId)),
       };
+    };
+
+    this.getAIPrepThread = (current, session) => {
+      if (!current || !session) return null;
+      if (session.activeThreadId) {
+        const existing = (current.aiThreads || []).find((item) => item.id === session.activeThreadId);
+        if (existing) return existing;
+      }
+      return null;
+    };
+
+    this.listVisibleAIPrepMessages = (messages, sessionId, threadId = "") => (Array.isArray(messages) ? messages : []).filter((message) => message.sessionId === sessionId && (!threadId || message.threadId === threadId) && isUserVisibleAiMessage(message));
+
+    this.buildAIPrepProviderMessages = (current, session, thread, userMessage) => {
+      const transcript = this.listVisibleAIPrepMessages(current.aiMessages, session.id, thread.id);
+      return [...transcript, userMessage];
     };
 
     this.decorateCampaign = (current, identityId = "") => ({
@@ -800,6 +851,11 @@ export default class Dnd_Gm_Store_File_Data {
       return wallet;
     };
 
+    this.saveAIPrepRunLog = async (campaignId, sessionId, runId, log) => {
+      await writeJson(this.aiRunLogJson(campaignId, sessionId, runId), log);
+      return log;
+    };
+
     this.callAiProvider = async ({ session, thread, messages, operation }) => {
       const cfg = this.getAiRuntimeConfig();
       if (cfg.provider !== "openai") {
@@ -807,6 +863,7 @@ export default class Dnd_Gm_Store_File_Data {
           provider: "fake",
           model: "fake",
           providerResponseId: `resp_${Date.now().toString(16)}`,
+          providerConversationId: thread.providerConversationId || "",
           outputText: `Draft response: ${messages.at(-1)?.text || ""}`.trim(),
           usage: this.normalizeUsage({
             inputTokens: 1,
@@ -815,6 +872,7 @@ export default class Dnd_Gm_Store_File_Data {
           }, operation, "fake", "fake"),
           status: "completed",
           assistantMessages: [],
+          receivedMessages: messages,
         };
       }
       if (!cfg.openaiApiKey) throw Object.assign(new Error("Missing OpenAI API key."), { code: "ai.provider.unavailable" });
@@ -823,7 +881,7 @@ export default class Dnd_Gm_Store_File_Data {
         instructions: `You are assisting in campaign preparation. Policy profile: ${session.policyProfile}. Target kind: ${session.targetKind}.`,
         input: messages.map((message) => ({
           role: message.role === "assistant" ? "assistant" : "user",
-          content: [{ type: "input_text", text: message.text || "" }],
+          content: message.text || "",
         })),
         max_output_tokens: cfg.maxOutputTokens,
       };
@@ -878,16 +936,22 @@ export default class Dnd_Gm_Store_File_Data {
       const isGM = current.campaign.gm.uuid === identity.id;
       if (profile?.ownerRole === "game_master" && !isGM) throw Object.assign(new Error("Only the Game Master may create this AI session."), { code: "forbidden" });
       if (profile?.ownerRole === "player" && isGM) throw Object.assign(new Error("Game Master may not create a player-owned AI session."), { code: "forbidden" });
+      const targetKind = requireKnownAiValue("targetKind", body.targetKind, AI_TARGET_KINDS);
+      const mode = requireKnownAiValue("mode", body.mode || "text-discussion", AI_MODES);
+      const outputKind = requireKnownAiValue("outputKind", body.outputKind || "", AI_OUTPUT_KINDS);
+      if (!String(body.targetId || "").trim()) throw Object.assign(new Error("targetId is required."), { code: "invalid_input" });
+      if (!String(body.policyProfile || "").trim()) throw Object.assign(new Error("policyProfile is required."), { code: "invalid_input" });
       const session = {
         id: `ai_session_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
         campaignId,
         ownerIdentityId: identity.id,
         ownerRole: isGM ? "game_master" : "player",
-        targetKind: String(body.targetKind || ""),
-        targetId: String(body.targetId || ""),
+        targetKind,
+        targetId: String(body.targetId || "").trim(),
         sectionKey: String(body.sectionKey || ""),
-        mode: String(body.mode || "text-discussion"),
-        policyProfile: String(body.policyProfile || "player-character-section-discussion"),
+        mode,
+        policyProfile: String(body.policyProfile || "").trim(),
+        outputKind,
         status: "active",
         title: String(body.title || "").trim() || "AI session",
         summary: null,
@@ -907,6 +971,26 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const isGM = current.campaign.gm.uuid === identity.id;
       return (current.aiSessions || []).filter((session) => isGM || session.ownerIdentityId === identity.id);
+    };
+
+    this.getAIPrepSession = async (campaignId, sessionId, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const session = (current.aiSessions || []).find((item) => item.id === sessionId);
+      if (!session) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      if (!isGM && session.ownerIdentityId !== identity.id) throw Object.assign(new Error("Identity is not authorized for this AI session."), { code: "forbidden" });
+      return session;
+    };
+
+    this.listAIPrepMessages = async (campaignId, sessionId, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const session = (current.aiSessions || []).find((item) => item.id === sessionId);
+      if (!session) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      if (!isGM && session.ownerIdentityId !== identity.id) throw Object.assign(new Error("Identity is not authorized for this AI session."), { code: "forbidden" });
+      return this.listVisibleAIPrepMessages(current.aiMessages, sessionId, session.activeThreadId || "");
     };
 
     this.postAIPrepMessage = async (campaignId, sessionId, body, identity) => {
@@ -943,23 +1027,24 @@ export default class Dnd_Gm_Store_File_Data {
         }
       }
       await this.saveIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId, { clientRequestId, campaignId, identityId: identity.id, endpointKey, sessionId, requestHash, status: "started", createdAt: this.timestamp() });
-      const thread = {
-        id: session.activeThreadId || `ai_thread_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
-        sessionId,
-        campaignId,
-        provider: "openai",
-        model: this.getAiRuntimeConfig().openaiDefaultModel,
-        mode: session.mode,
-        providerConversationId: null,
-        lastResponseId: null,
-        status: "active",
-        createdAt: this.timestamp(),
-        updatedAt: this.timestamp(),
-      };
+      let thread = this.getAIPrepThread(current, session);
+      if (!thread) {
+        thread = {
+          id: session.activeThreadId || `ai_thread_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
+          sessionId,
+          campaignId,
+          provider: "openai",
+          model: this.getAiRuntimeConfig().openaiDefaultModel,
+          mode: session.mode,
+          providerConversationId: null,
+          lastResponseId: null,
+          status: "active",
+          createdAt: this.timestamp(),
+          updatedAt: this.timestamp(),
+        };
+        current.aiThreads.push(thread);
+      }
       if (!session.activeThreadId) session.activeThreadId = thread.id;
-      const existingThreadIndex = current.aiThreads.findIndex((item) => item.id === thread.id);
-      if (existingThreadIndex >= 0) current.aiThreads[existingThreadIndex] = thread;
-      else current.aiThreads.push(thread);
       const userMessage = { id: `ai_msg_${Date.now().toString(16)}u`, sessionId, threadId: thread.id, role: "user", contentType: body.contentType || "text", text: normalizedText, assetRefs: Array.isArray(body.assetRefs) ? body.assetRefs : [], draftRefs: Array.isArray(body.draftRefs) ? body.draftRefs : [], providerResponseId: null, createdAt: this.timestamp() };
       current.aiMessages.push(userMessage);
       const run = { id: `ai_run_${Date.now().toString(16)}`, sessionId, threadId: thread.id, campaignId, provider: "openai", model: thread.model, operation: body.operation || "text-discussion", inputMessageIds: [userMessage.id], outputMessageIds: [], inputAssetIds: Array.isArray(body.assetRefs) ? body.assetRefs : [], outputAssetIds: [], relatedDraftId: "", providerResponseId: null, usageRecordId: null, status: "started", errorCode: "", createdAt: this.timestamp(), completedAt: null };
@@ -972,7 +1057,36 @@ export default class Dnd_Gm_Store_File_Data {
       const estimateCredits = await this.computeEstimatedChargeCredits(policy, body.operation || "text-discussion", { providerCostUsd: 0.01 });
       const wallet = await this.getCampaignWallet(campaignId);
       if (!wallet || safeInt(wallet.balanceCredits, 0) < estimateCredits) throw Object.assign(new Error("Campaign wallet does not satisfy the required estimate check."), { code: "ai.wallet.insufficient_credits" });
-      const providerResult = await this.callAiProvider({ session, thread, messages: [userMessage], operation: body.operation || "text-discussion" });
+      const providerMessages = this.buildAIPrepProviderMessages(current, session, thread, userMessage);
+      const startedAt = this.timestamp();
+      let providerResult;
+      try {
+        providerResult = await this.callAiProvider({ session, thread, messages: providerMessages, operation: body.operation || "text-discussion" });
+      } catch (error) {
+        const failedLog = {
+          campaignId,
+          sessionId,
+          threadId: thread.id,
+          runId: run.id,
+          provider: thread.provider,
+          model: thread.model,
+          operation: body.operation || "text-discussion",
+          status: "failed",
+          errorCode: error?.code || "internal_error",
+          errorMessage: error?.message || "",
+          createdAt: startedAt,
+          completedAt: this.timestamp(),
+          request: {
+            messageCount: providerMessages.length,
+            messageIds: providerMessages.map((message) => message.id),
+            roles: providerMessages.map((message) => message.role),
+            hasPreviousResponseId: !!thread.lastResponseId,
+            continuationMode: thread.lastResponseId ? "provider-side" : "local-history",
+          },
+        };
+        await this.saveAIPrepRunLog(campaignId, sessionId, run.id, failedLog);
+        throw error;
+      }
       const assistantMessages = [];
       for (const assistantMessage of providerResult.assistantMessages || []) {
         assistantMessages.push({ id: `ai_msg_${Date.now().toString(16)}a`, sessionId, threadId: thread.id, role: "assistant", contentType: assistantMessage.contentType || "text", text: assistantMessage.text || "", assetRefs: [], draftRefs: [], providerResponseId: providerResult.providerResponseId || null, createdAt: this.timestamp() });
@@ -1008,7 +1122,8 @@ export default class Dnd_Gm_Store_File_Data {
       run.usageRecordId = usageRecord.id;
       run.status = providerResult.status === "completed" ? "completed" : "failed";
       run.completedAt = this.timestamp();
-      thread.lastResponseId = providerResult.providerResponseId || thread.lastResponseId;
+      thread.providerConversationId = thread.providerConversationId || providerResult.providerConversationId || "";
+      thread.lastResponseId = providerResult.status === "completed" ? (providerResult.providerResponseId || thread.lastResponseId) : thread.lastResponseId;
       thread.updatedAt = this.timestamp();
       session.activeThreadId = thread.id;
       session.updatedAt = this.timestamp();
@@ -1016,6 +1131,38 @@ export default class Dnd_Gm_Store_File_Data {
       await writeJson(this.aiThreadsJson(campaignId), { aiThreads: current.aiThreads });
       await writeJson(this.aiMessagesJson(campaignId), { aiMessages: current.aiMessages });
       await writeJson(this.aiRunsJson(campaignId), { aiRuns: current.aiRuns });
+      await this.saveAIPrepRunLog(campaignId, sessionId, run.id, {
+        campaignId,
+        sessionId,
+        threadId: thread.id,
+        runId: run.id,
+        provider: providerResult.provider,
+        model: providerResult.model,
+        operation: body.operation || "text-discussion",
+        status: run.status,
+        providerResponseId: providerResult.providerResponseId || "",
+        inputMessageIds: providerMessages.map((message) => message.id),
+        outputMessageIds: assistantMessages.map((message) => message.id),
+        continuation: {
+          strategy: thread.lastResponseId ? "local-history" : "local-history",
+          previousResponseIdUsed: false,
+          threadLastResponseId: thread.lastResponseId || "",
+          providerConversationId: thread.providerConversationId || "",
+        },
+        request: {
+          messageCount: providerMessages.length,
+          messageIds: providerMessages.map((message) => message.id),
+          roles: providerMessages.map((message) => message.role),
+          hasPreviousResponseId: !!thread.lastResponseId,
+          continuationMode: thread.lastResponseId ? "provider-side" : "local-history",
+        },
+        response: {
+          assistantMessageCount: assistantMessages.length,
+          outputTextLength: providerResult.outputText ? providerResult.outputText.length : 0,
+        },
+        createdAt: startedAt,
+        completedAt: this.timestamp(),
+      });
       const finalChargeCredits = this.computeChargeCredits(policy, usageRecord);
       const nextBalance = safeInt(wallet.balanceCredits, 0) - finalChargeCredits;
       if (nextBalance < 0) throw Object.assign(new Error("Campaign wallet charge failed."), { code: "ai.wallet.charge_failed" });

@@ -12,6 +12,11 @@ async function createStore({ now } = {}) {
   return { root, store: new DataStore(now ? { now } : {}) };
 }
 
+async function writeJson(file, value) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
 test("file store persists campaigns under var/data/campaigns and records events and credits", async () => {
   const { store } = await createStore();
   const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
@@ -191,4 +196,117 @@ test("legacy campaigns without wallet file get a wallet on first access", async 
   assert.equal(wallet.balanceCredits, 100);
   assert.equal(saved.balanceCredits, 100);
   assert.equal(saved.pricingPolicyId, "pricing-openai-standard-v1");
+});
+
+test("AI message posting reuses active thread state and preserves continuation fields", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Continuity campaign" });
+  await store.joinCampaign(created.campaignId, bob);
+  const session = await store.createAIPrepSession(created.campaignId, {
+    title: "AI",
+    targetKind: "character-profile-section",
+    targetId: "sheet_1",
+    sectionKey: "identity.name",
+    mode: "text-draft-generation",
+    policyProfile: "player-character-section-discussion",
+  }, bob);
+  const thread = {
+    id: "ai_thread_existing",
+    sessionId: session.id,
+    campaignId: created.campaignId,
+    provider: "openai",
+    model: "gpt-4.1-mini",
+    mode: session.mode,
+    providerConversationId: "conv_prev",
+    lastResponseId: "resp_prev",
+    status: "active",
+    createdAt: "2026-05-30T00:00:00.000Z",
+    updatedAt: "2026-05-30T00:00:00.000Z",
+  };
+  session.activeThreadId = thread.id;
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai-sessions", "ai-sessions.json"), { aiSessions: [session] });
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai-threads", "ai-threads.json"), { aiThreads: [thread] });
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai-messages", "ai-messages.json"), { aiMessages: [
+    { id: "msg_user_0", sessionId: session.id, threadId: thread.id, role: "user", contentType: "text", text: "Propose variants for the ranger.", assetRefs: [], draftRefs: [], providerResponseId: null, createdAt: "2026-05-30T00:00:01.000Z" },
+    { id: "msg_assistant_0", sessionId: session.id, threadId: thread.id, role: "assistant", contentType: "text", text: "First variant. Second variant. Third variant.", assetRefs: [], draftRefs: [], providerResponseId: "resp_prev", createdAt: "2026-05-30T00:00:02.000Z" },
+  ] });
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai-runs", "ai-runs.json"), { aiRuns: [] });
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "credits", "wallet.json"), { campaignId: created.campaignId, balanceCredits: 100, pricingPolicyId: "pricing-openai-standard-v1", createdAt: "2026-05-30T00:00:00.000Z", updatedAt: "2026-05-30T00:00:00.000Z" });
+
+  const providerCalls = [];
+  store.callAiProvider = async ({ thread: providerThread, messages }) => {
+    providerCalls.push({
+      lastResponseId: providerThread.lastResponseId,
+      providerConversationId: providerThread.providerConversationId,
+      transcript: messages.map((message) => `${message.role}:${message.text}`),
+    });
+    return {
+      provider: "fake",
+      model: "fake",
+      providerResponseId: `resp_${providerCalls.length}`,
+      providerConversationId: providerThread.providerConversationId || "conv_1",
+      outputText: "Assistant reply",
+      usage: store.normalizeUsage({
+        inputTokens: 1,
+        outputTokens: 1,
+        usageItems: [{ kind: "text-output-token", unit: "token", quantity: 1, providerUnitPriceUsd: 0, providerCostUsd: 0 }],
+      }, "text-discussion", "fake", "fake"),
+      status: "completed",
+      assistantMessages: [{ role: "assistant", contentType: "text", text: "Assistant reply" }],
+    };
+  };
+
+  const first = await store.postAIPrepMessage(created.campaignId, session.id, { clientRequestId: "req-1", text: "Use the third variant and make it darker.", operation: "text-discussion" }, bob);
+  const second = await store.postAIPrepMessage(created.campaignId, session.id, { clientRequestId: "req-2", text: "Now regroup the previously generated text by Name, Short description, Ancestry, Class, Role.", operation: "text-discussion" }, bob);
+  const current = await store.readCampaign(created.campaignId);
+  const log1 = JSON.parse(await fs.readFile(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai", "logs", session.id, first.run.id + ".json"), "utf8"));
+  const log2 = JSON.parse(await fs.readFile(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai", "logs", session.id, second.run.id + ".json"), "utf8"));
+
+  assert.equal(first.run.status, "completed");
+  assert.equal(second.run.status, "completed");
+  assert.equal(current.aiSessions[0].activeThreadId, thread.id);
+  assert.equal(current.aiThreads[0].lastResponseId, "resp_2");
+  assert.equal(providerCalls[0].lastResponseId, "resp_prev");
+  assert.equal(providerCalls[1].lastResponseId, "resp_1");
+  assert.equal(providerCalls[1].transcript.some((line) => line.includes("First variant. Second variant. Third variant.")), true);
+  assert.equal(providerCalls[1].transcript[providerCalls[1].transcript.length - 1].startsWith("user:Now regroup"), true);
+  assert.equal(log1.status, "completed");
+  assert.equal(log1.request.messageCount >= 3, true);
+  assert.equal(log1.request.roles.includes("assistant"), true);
+  assert.equal(JSON.stringify(log1).includes("Third variant"), false);
+  assert.equal(log2.status, "completed");
+  assert.equal(log2.request.messageCount >= 4, true);
+  assert.equal(JSON.stringify(log2).includes("Short description"), false);
+});
+
+test("AI transcript reads project only user-visible dialogue messages", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Transcript campaign" });
+  await store.joinCampaign(created.campaignId, bob);
+  const session = await store.createAIPrepSession(created.campaignId, {
+    title: "AI",
+    targetKind: "character-profile-section",
+    targetId: "sheet_1",
+    sectionKey: "identity.name",
+    mode: "text-draft-generation",
+    policyProfile: "player-character-section-discussion",
+  }, bob);
+  session.activeThreadId = "ai_thread_1";
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai-sessions", "ai-sessions.json"), { aiSessions: [session] });
+  await writeJson(path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "ai-messages", "ai-messages.json"), { aiMessages: [
+    { id: "msg_user_0", sessionId: session.id, threadId: "ai_thread_1", role: "user", contentType: "text", text: "Hello", assetRefs: [], draftRefs: [], providerResponseId: null, createdAt: "2026-05-30T00:00:01.000Z" },
+    { id: "msg_sys_0", sessionId: session.id, threadId: "ai_thread_1", role: "system-note", contentType: "text", text: "Hidden prompt", assetRefs: [], draftRefs: [], providerResponseId: null, createdAt: "2026-05-30T00:00:02.000Z" },
+    { id: "msg_tool_0", sessionId: session.id, threadId: "ai_thread_1", role: "tool-note", contentType: "text", text: "Tool trace", assetRefs: [], draftRefs: [], providerResponseId: null, createdAt: "2026-05-30T00:00:03.000Z" },
+    { id: "msg_assistant_0", sessionId: session.id, threadId: "ai_thread_1", role: "assistant", contentType: "text", text: "Reply", assetRefs: [], draftRefs: [], providerResponseId: "resp_1", createdAt: "2026-05-30T00:00:04.000Z" },
+  ] });
+
+  const messages = await store.listAIPrepMessages(created.campaignId, session.id, bob);
+
+  assert.deepEqual(messages.map((message) => message.role), ["user", "assistant"]);
+  assert.equal(messages.some((message) => message.role === "system-note"), false);
+  assert.equal(messages.some((message) => message.role === "tool-note"), false);
 });

@@ -221,6 +221,12 @@ export default class Dnd_Gm_Web_Handler_Api {
     this.postAIPrepSession = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
       const body = await readBody(req);
+      const allowedTargetKinds = new Set(["character-profile-section", "character-sheet-section", "campaign-brief", "campaign-material", "npc-material", "location-material", "handout", "map", "asset-task"]);
+      const allowedModes = new Set(["text-discussion", "text-draft-generation", "image-prompt-discussion", "image-generation", "image-editing", "summary"]);
+      const allowedOutputKinds = new Set(["message", "draft", "asset"]);
+      if (body.targetKind && !allowedTargetKinds.has(String(body.targetKind).trim())) throw Object.assign(new Error("Unsupported targetKind."), { code: "invalid_input" });
+      if (body.mode && !allowedModes.has(String(body.mode).trim())) throw Object.assign(new Error("Unsupported mode."), { code: "invalid_input" });
+      if (body.outputKind && !allowedOutputKinds.has(String(body.outputKind).trim())) throw Object.assign(new Error("Unsupported outputKind."), { code: "invalid_input" });
       const session = await this.dataStore.createAIPrepSession(campaignId, body, identity);
       if (!session) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
       complete(context);
@@ -229,10 +235,34 @@ export default class Dnd_Gm_Web_Handler_Api {
 
     this.listAIPrepSessions = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
-      const sessions = await this.dataStore.listAIPrepSessions(campaignId, identity);
+      const url = new URL(req.url, "http://localhost");
+      let sessions = await this.dataStore.listAIPrepSessions(campaignId, identity);
       if (!sessions) throw Object.assign(new Error("Unknown campaign id."), { code: "unknown_campaign" });
+      const filters = {
+        targetKind: url.searchParams.get("targetKind") || "",
+        targetId: url.searchParams.get("targetId") || "",
+        sectionKey: url.searchParams.get("sectionKey") || "",
+        status: url.searchParams.get("status") || "",
+      };
+      sessions = sessions.filter((session) => (!filters.targetKind || session.targetKind === filters.targetKind) && (!filters.targetId || session.targetId === filters.targetId) && (!filters.sectionKey || session.sectionKey === filters.sectionKey) && (!filters.status || session.status === filters.status));
       complete(context);
       json(res, 200, success({ sessions }));
+    };
+
+    this.getAIPrepSession = async (campaignId, sessionId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const session = await this.dataStore.getAIPrepSession(campaignId, sessionId, identity);
+      if (!session) throw Object.assign(new Error("Unknown AI session id."), { code: "unknown_ai_session" });
+      complete(context);
+      json(res, 200, success({ session }));
+    };
+
+    this.listAIPrepMessages = async (campaignId, sessionId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const messages = await this.dataStore.listAIPrepMessages(campaignId, sessionId, identity);
+      if (!messages) throw Object.assign(new Error("Unknown AI session id."), { code: "unknown_ai_session" });
+      complete(context);
+      json(res, 200, success({ messages }));
     };
 
     this.postAIPrepMessage = async (campaignId, sessionId, req, res, context) => {
@@ -465,6 +495,8 @@ export default class Dnd_Gm_Web_Handler_Api {
             if (collection === "character-sheets" && assetCollection === "assets" && method === "PATCH") return await this.patchCharacterSheetAsset(campaignId, itemId, assetId, req, res, context);
             if (collection === "character-sheets" && assetCollection === "assets" && method === "DELETE") return await this.deleteCharacterSheetAsset(campaignId, itemId, assetId, req, res, context);
             if (collection === "ai/sessions" && !action && method === "POST") return await this.postAIPrepMessage(campaignId, itemId, req, res, context);
+            if (collection === "ai/sessions" && !action && method === "GET") return await this.getAIPrepSession(campaignId, itemId, req, res, context);
+            if (collection === "ai/sessions" && action === "messages" && method === "GET") return await this.listAIPrepMessages(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && !action && method === "GET") return await this.getAIDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && !action && method === "PATCH") return await this.patchAIDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && action === "regenerate" && method === "POST") return await this.regenerateAIDraft(campaignId, itemId, req, res, context);
@@ -490,6 +522,7 @@ export default class Dnd_Gm_Web_Handler_Api {
         if (err?.code === "unknown_campaign") return json(res, 404, error("unknown_campaign", "Unknown campaign id."));
         if (err?.code === "unknown_character_sheet") return json(res, 404, error("unknown_character_sheet", "Unknown character sheet id."));
         if (err?.code === "unknown_ai_draft") return json(res, 404, error("unknown_ai_draft", "Unknown AI draft id."));
+        if (err?.code === "unknown_ai_session") return json(res, 404, error("unknown_ai_session", "Unknown AI session id."));
         if (err?.code === "invalid_client_instance_id") return json(res, 400, error("invalid_client_instance_id", "Invalid client instance id."));
         return json(res, 500, error("internal_error", "Internal server error."));
       }

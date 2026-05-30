@@ -44,7 +44,9 @@ function makeDataStore() {
     async listCredits() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async listMaterials() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async createAIPrepSession() { return { id: "session_1", policyProfile: "player-character-section-discussion" }; },
-    async listAIPrepSessions() { return [{ id: "session_1" }]; },
+    async listAIPrepSessions() { return [{ id: "session_1", targetKind: "character-profile-section", targetId: "sheet_1", sectionKey: "identity.name", status: "active" }]; },
+    async getAIPrepSession() { return { id: "session_1" }; },
+    async listAIPrepMessages() { return [{ id: "msg_1", role: "user", text: "Hello" }]; },
     async postAIPrepMessage() { return { message: { id: "msg_1" }, run: { id: "run_1" }, responseMessage: { id: "msg_2" } }; },
     async createMaterial() { return { materialId: "mat_1" }; },
     async listCharacterSheetsView() { return [{ sheetId: "sheet_1", title: "Character", state: "draft" }]; },
@@ -170,6 +172,38 @@ test("POST /api/campaigns/:campaignId/ai/sessions creates a session and message 
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
   assert.match(context.response.body, /"session"/);
+});
+
+test("GET /api/campaigns/:campaignId/ai/sessions filters by target binding", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions?targetKind=character-profile-section&targetId=sheet_1&sectionKey=identity.name&status=active";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"targetKind":"character-profile-section"/);
+});
+
+test("GET /api/campaigns/:campaignId/ai/sessions/:sessionId/messages returns transcript entries", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions/session_1/messages";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"messages":\[/);
+});
+
+test("POST /api/campaigns/:campaignId/ai/sessions rejects unsupported target kinds", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "POST";
+  context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  context.request = Object.assign(context.request, { async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ title: "AI", targetKind: "workspace-chat", targetId: "sheet_1", mode: "text-draft-generation", policyProfile: "player-character-section-discussion" })); } });
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 400);
+  assert.match(context.response.body, /invalid_input/);
 });
 
 test("GET /api/event-delivery opens SSE with browser-compatible query parameters", async () => {
