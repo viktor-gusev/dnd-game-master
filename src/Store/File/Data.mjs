@@ -59,6 +59,21 @@ function normalizeStructuredProfile(profile = {}) {
   return next;
 }
 
+function getSectionValue(profile, sectionPath) {
+  return sectionPath.split(".").reduce((value, key) => value?.[key], profile);
+}
+
+function setSectionValue(profile, sectionPath, value) {
+  const parts = sectionPath.split(".");
+  let cursor = profile;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const key = parts[i];
+    cursor[key] = cursor[key] && typeof cursor[key] === "object" ? cursor[key] : {};
+    cursor = cursor[key];
+  }
+  cursor[parts.at(-1)] = value;
+}
+
 function assetVisibilityForOwner(asset, isOwnerOrGM) {
   if (isOwnerOrGM) return asset;
   return null;
@@ -120,6 +135,18 @@ function normalizeSheet(sheet = {}, campaignId) {
     tokenAssetId: sheet.tokenAssetId || "",
     createdAt: sheet.createdAt || "",
     updatedAt: sheet.updatedAt || "",
+  };
+}
+
+function publicStructuredProfile(sheet) {
+  return {
+    identity: sheet.structuredProfile.identity,
+    appearance: sheet.structuredProfile.appearance,
+    personality: sheet.structuredProfile.personality,
+    backstory: sheet.structuredProfile.backstory,
+    campaignIntegration: sheet.structuredProfile.campaignIntegration,
+    mechanics: sheet.structuredProfile.mechanics,
+    publicNotes: sheet.structuredProfile.publicNotes,
   };
 }
 
@@ -444,6 +471,11 @@ export default class Dnd_Gm_Store_File_Data {
       if (typeof body.title === "string") sheet.title = body.title.trim() || sheet.title;
       if (typeof body.content === "string") sheet.content = body.content;
       if (body.structuredProfile) sheet.structuredProfile = normalizeStructuredProfile(body.structuredProfile);
+      if (body.sectionPath && Object.prototype.hasOwnProperty.call(body, "sectionValue")) {
+        const normalized = normalizeStructuredProfile(sheet.structuredProfile);
+        setSectionValue(normalized, body.sectionPath, typeof body.sectionValue === "string" ? body.sectionValue : "");
+        sheet.structuredProfile = normalized;
+      }
       if (Array.isArray(body.assetRefs)) sheet.assetRefs = body.assetRefs;
       if (typeof body.primaryPortraitAssetId === "string") sheet.primaryPortraitAssetId = body.primaryPortraitAssetId;
       if (typeof body.tokenAssetId === "string") sheet.tokenAssetId = body.tokenAssetId;
@@ -498,6 +530,9 @@ export default class Dnd_Gm_Store_File_Data {
         sourceDraftId: "",
         ownerIdentityId: identity.id,
         ownerRole: isGM ? "game_master" : "player",
+        targetSheetId: typeof body.targetSheetId === "string" ? body.targetSheetId : "",
+        sectionPath: typeof body.sectionPath === "string" ? body.sectionPath : "",
+        candidateText: typeof body.candidateText === "string" ? body.candidateText : "",
       };
       current.aiDrafts.push(draft);
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
@@ -519,6 +554,7 @@ export default class Dnd_Gm_Store_File_Data {
       if (current.campaign.gm.uuid !== identity.id || draft.ownerRole !== "game_master") throw Object.assign(new Error("Only the Game Master may edit Game Master AI drafts."), { code: "forbidden" });
       if (typeof body.title === "string") draft.title = body.title.trim() || draft.title;
       if (typeof body.content === "string") draft.content = body.content;
+      if (typeof body.candidateText === "string") draft.candidateText = body.candidateText;
       draft.updatedAt = this.timestamp();
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
       await this.touchCampaign(campaignId, identity.id, "ai.draft.edited", { draftId });
@@ -556,10 +592,29 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const draft = current.aiDrafts.find((item) => item.draftId === draftId);
       if (!draft) return null;
-      if (current.campaign.gm.uuid !== identity.id || draft.ownerRole !== "game_master") throw Object.assign(new Error("Only the Game Master may accept Game Master AI drafts."), { code: "forbidden" });
+      const isGM = current.campaign.gm.uuid === identity.id;
+      const isOwner = draft.ownerIdentityId === identity.id;
+      if (!isGM && !isOwner) throw Object.assign(new Error("Only the authorized owner may accept this AI draft."), { code: "forbidden" });
+      if (!draft.targetSheetId) {
+        draft.state = "accepted";
+        draft.updatedAt = this.timestamp();
+        await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
+        await this.touchCampaign(campaignId, identity.id, "ai.draft.accepted", { draftId });
+        return draft;
+      }
+      const sheet = current.characterSheets.find((item) => item.sheetId === draft.targetSheetId);
+      if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
+      if (sheet.playerIdentityId !== identity.id && !isGM) throw Object.assign(new Error("Only the authorized owner may accept this AI draft."), { code: "forbidden" });
+      if (draft.sectionPath) {
+        const normalized = normalizeStructuredProfile(sheet.structuredProfile);
+        setSectionValue(normalized, draft.sectionPath, draft.candidateText || draft.content || "");
+        sheet.structuredProfile = normalized;
+      }
+      sheet.updatedAt = this.timestamp();
       draft.state = "accepted";
       draft.updatedAt = this.timestamp();
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
+      await writeJson(this.characterSheetsJson(campaignId), { characterSheets: current.characterSheets });
       await this.touchCampaign(campaignId, identity.id, "ai.draft.accepted", { draftId });
       return draft;
     };
@@ -607,15 +662,7 @@ export default class Dnd_Gm_Store_File_Data {
       const isParticipant = current.participants.some((participant) => participant.identityId === identity.id);
       if (!isGM && !isOwner && !isParticipant) return null;
       const assets = (current.assets || []).filter((asset) => asset.linkedSheetId === sheetId);
-      const publicProfile = {
-        identity: sheet.structuredProfile.identity,
-        appearance: sheet.structuredProfile.appearance,
-        personality: sheet.structuredProfile.personality,
-        backstory: sheet.structuredProfile.backstory,
-        campaignIntegration: sheet.structuredProfile.campaignIntegration,
-        mechanics: sheet.structuredProfile.mechanics,
-        publicNotes: sheet.structuredProfile.publicNotes,
-      };
+      const publicProfile = publicStructuredProfile(sheet);
       const privateProfile = {
         gmHooks: sheet.structuredProfile.gmHooks,
         playerIntent: sheet.structuredProfile.playerIntent,

@@ -14,6 +14,12 @@ function makeDocument() {
   return { body: makeNode("body"), location: { href: "http://localhost/player-workspace.html?campaignId=campaign-1" }, addEventListener() {}, createElement: () => makeNode(), getElementById(id) { if (!nodes.has(id)) nodes.set(id, makeNode(id)); return nodes.get(id); }, nodes };
 }
 
+function collectText(node) {
+  const own = node?.textContent || "";
+  const children = Array.isArray(node?.children) ? node.children.map(collectText).join(" ") : "";
+  return `${own} ${children}`.trim();
+}
+
 function makeStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
   return { getItem(key) { return values.has(key) ? values.get(key) : null; }, setItem(key, value) { values.set(key, String(value)); }, values };
@@ -42,6 +48,8 @@ test("player workspace loads campaign data from the role-resolved campaign proje
   assert.equal(document.getElementById("campaignTitle").textContent, "Friday tavern run");
   assert.match(document.getElementById("campaignSubtitle").textContent, /1 participant/);
   assert.match(document.getElementById("workspaceDetails").textContent, /Friday tavern run/);
+  assert.equal(document.getElementById("characterWorkshop").children.length > 0, true);
+  assert.equal(document.getElementById("publicPreview").children.length > 0, true);
   assert.equal(fetchCalls.includes("/api/campaigns/campaign-1"), true);
   assert.equal(document.getElementById("status").textContent, "Workspace ready.");
 

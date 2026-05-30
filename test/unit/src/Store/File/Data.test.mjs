@@ -127,6 +127,36 @@ test("player asset metadata links are owner-bound and approval only publishes ma
   assert.equal(current.assetRefs.some((item) => item.assetId === asset.assetId), true);
 });
 
+test("player-owned AI draft acceptance updates only the selected section", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const created = await store.createCampaign(alice, { title: "AI profile" });
+  const sheet = await store.createCharacterSheet(created.campaignId, {
+    structuredProfile: {
+      identity: { name: "Asha" },
+      appearance: { text: "Short cloak" },
+      personality: { traits: "Calm" },
+      backstory: { text: "A wanderer" },
+      campaignIntegration: { reasonToJoin: "Seek allies" },
+      mechanics: { text: "Free-form" },
+      publicNotes: "Visible note",
+      gmHooks: "Hidden hook",
+      playerIntent: { playStyle: "Support" },
+    },
+  }, alice);
+  const draft = await store.createAIDraft(created.campaignId, {
+    title: "Identity suggestion",
+    targetSheetId: sheet.sheetId,
+    sectionPath: "identity.name",
+    candidateText: "Asha the Bold",
+  }, alice);
+  const accepted = await store.acceptAIDraft(created.campaignId, draft.aiDraft.draftId, alice);
+  const projected = await store.getCharacterSheetView(created.campaignId, sheet.sheetId, alice);
+  assert.equal(accepted.state, "accepted");
+  assert.equal(projected.structuredProfile.identity.name, "Asha the Bold");
+  assert.equal(projected.structuredProfile.appearance.text, "Short cloak");
+});
+
 test("file store cleanup removes expired campaigns and the 10-day boundary remains", async () => {
   const now = () => new Date("2026-05-20T00:00:00.000Z");
   const { store } = await createStore({ now });

@@ -2,17 +2,221 @@ function el(id, doc = document) {
   return doc.getElementById(id);
 }
 
-function formField(form, name) {
-  const field = form?.elements?.namedItem?.(name);
-  return field && typeof field === "object" && "value" in field ? field : null;
+function text(value) {
+  return String(value ?? "").trim();
 }
 
-function renderStatus(doc, id, value) {
-  const node = el(id, doc);
-  if (node) node.textContent = value;
+function valueFor(profile, path) {
+  return path.split(".").reduce((current, key) => current?.[key], profile) || "";
 }
 
-async function loadWorkspace(shell, campaignId, kind) {
+function setValueFor(profile, path, value) {
+  const parts = path.split(".");
+  let cursor = profile;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const key = parts[i];
+    cursor[key] = cursor[key] && typeof cursor[key] === "object" ? cursor[key] : {};
+    cursor = cursor[key];
+  }
+  cursor[parts.at(-1)] = value;
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function formatPerson(value) {
+  return text(value) || "None yet";
+}
+
+function structuredProfileFallback(sheet) {
+  return clone(sheet?.structuredProfile || {
+    identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
+    appearance: { text: "" },
+    personality: { traits: "", motivation: "", fears: "", mannerisms: "", speechStyle: "" },
+    backstory: { text: "", importantNpc: "", openHooks: "" },
+    campaignIntegration: { reasonToJoin: "", linksToOtherCharacters: "", gmUsableHooks: "", boundaries: "" },
+    mechanics: { text: "" },
+    publicNotes: "",
+    gmHooks: "",
+    playerIntent: { playStyle: "", themes: "", aiHelpMode: "" },
+  });
+}
+
+function publicProjection(sheet) {
+  return {
+    identity: sheet?.structuredProfile?.identity || {},
+    appearance: sheet?.structuredProfile?.appearance || {},
+    personality: sheet?.structuredProfile?.personality || {},
+    backstory: sheet?.structuredProfile?.backstory || {},
+    campaignIntegration: sheet?.structuredProfile?.campaignIntegration || {},
+    mechanics: sheet?.structuredProfile?.mechanics || {},
+    publicNotes: sheet?.structuredProfile?.publicNotes || "",
+  };
+}
+
+function previewProfile(sheet) {
+  return sheet?.structuredProfile || structuredProfileFallback(null);
+}
+
+function sectionGroups(profile, isOwner) {
+  return [
+    { key: "identity", title: "Identity", fields: [["identity.name", "Name"], ["identity.shortDescription", "Short description"], ["identity.ancestry", "Ancestry"], ["identity.characterClass", "Class"], ["identity.role", "Role"]] },
+    { key: "appearance", title: "Appearance", fields: [["appearance.text", "Appearance"]] },
+    { key: "personality", title: "Personality", fields: [["personality.traits", "Traits"], ["personality.motivation", "Motivation"], ["personality.fears", "Fears"], ["personality.mannerisms", "Mannerisms"], ["personality.speechStyle", "Speech style"]] },
+    { key: "backstory", title: "Backstory", fields: [["backstory.text", "Backstory"], ["backstory.importantNpc", "Important NPC"], ["backstory.openHooks", "Open hooks"]] },
+    { key: "campaignIntegration", title: "Campaign integration", fields: [["campaignIntegration.reasonToJoin", "Reason to join"], ["campaignIntegration.linksToOtherCharacters", "Links to other characters"], ["campaignIntegration.gmUsableHooks", "GM-usable hooks"], ["campaignIntegration.boundaries", "Boundaries"]] },
+    { key: "mechanics", title: "Mechanics", fields: [["mechanics.text", "Mechanics text"]] },
+    { key: "publicNotes", title: "Public notes", fields: [["publicNotes", "Public notes"]] },
+    { key: "gmHooks", title: "GM hooks", fields: [["gmHooks", "GM hooks"]], hidden: !isOwner },
+    { key: "playerIntent", title: "Player intent", fields: [["playerIntent.playStyle", "Play style"], ["playerIntent.themes", "Themes"], ["playerIntent.aiHelpMode", "AI help mode"]], hidden: !isOwner },
+  ].filter((group) => !group.hidden);
+}
+
+function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
+  const sheetId = state.sheetId || state.sheet?.sheetId || "";
+  const card = doc.createElement("section");
+  card.className = "workshop-section";
+  const header = doc.createElement("div");
+  header.className = "workshop-section-header";
+  const title = doc.createElement("h3");
+  title.textContent = group.title;
+  header.appendChild(title);
+  const status = doc.createElement("p");
+  status.className = "workshop-section-status";
+  status.textContent = state.editingSection === group.key ? "Editing locally" : "Readable";
+  header.appendChild(status);
+  card.appendChild(header);
+
+  if (state.editingSection === group.key) {
+    const form = doc.createElement("form");
+    form.className = "workshop-section-form";
+    async function submitSection(event) {
+      event?.preventDefault?.();
+      const nextProfile = clone(state.draftProfile || state.sheet?.structuredProfile || structuredProfileFallback(null));
+      for (const [path] of group.fields) {
+        const field = form.elements.namedItem(path);
+        if (field && "value" in field) setValueFor(nextProfile, path, String(field.value));
+      }
+      const response = sheetId
+        ? await shell.api(`/api/campaigns/${state.campaignId}/character-sheets/${sheetId}`, {
+          method: "PATCH",
+          operation: "save-character-section",
+          body: JSON.stringify({ structuredProfile: nextProfile }),
+        })
+        : await shell.api(`/api/campaigns/${state.campaignId}/character-sheets`, {
+          method: "POST",
+          operation: "create-character-section-draft",
+          body: JSON.stringify({ structuredProfile: nextProfile }),
+        });
+      if (!response.ok) {
+        if (typeof shell.pageError === "function") shell.pageError(response.error?.message || "Failed to save section.");
+        const status = el("status", doc);
+        if (status) status.textContent = response.error?.message || "Failed to save section.";
+        return;
+      }
+      if (typeof shell.pageError === "function") shell.pageError("");
+      onRefresh({ editingSection: "", draftProfile: null, sheet: response.data.characterSheet, sheetId: response.data.characterSheet?.sheetId || sheetId, statusMessage: "Section saved." });
+    }
+    const actions = doc.createElement("div");
+    actions.className = "workshop-actions";
+    const save = doc.createElement("button");
+    save.type = "submit";
+    save.textContent = "Save";
+    save.addEventListener("click", submitSection);
+    const cancel = doc.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => onRefresh({ editingSection: "", draftProfile: null, aiDraft: null }));
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    if (shell.pageContext.kind === "player workspace") {
+      const ask = doc.createElement("button");
+      ask.type = "button";
+      ask.textContent = "Ask AI";
+      ask.addEventListener("click", async () => {
+        const candidateText = text(valueFor(state.draftProfile || state.sheet?.structuredProfile || {}, group.fields[0][0]));
+        const response = await shell.api(`/api/campaigns/${state.campaignId}/ai/drafts`, {
+          method: "POST",
+          operation: "create-player-ai-draft",
+          body: JSON.stringify({
+            title: `${group.title} suggestion`,
+            targetSheetId: sheetId,
+            sectionPath: group.fields[0][0],
+            candidateText,
+          }),
+        });
+        if (!response.ok) return shell.pageError(response.error?.message || "Failed to create AI suggestion.");
+        onRefresh({ aiDraft: response.data.aiDraft, statusMessage: "AI suggestion created." });
+      });
+      actions.insertBefore(ask, save);
+    }
+    form.appendChild(actions);
+    for (const [path, label] of group.fields) {
+      const labelEl = doc.createElement("label");
+      labelEl.className = "workshop-field";
+      labelEl.textContent = label;
+      const input = doc.createElement("textarea");
+      input.name = path;
+      input.value = state.draftProfile ? valueFor(state.draftProfile, path) : "";
+      input.rows = path === "identity.shortDescription" || path === "publicNotes" ? 2 : 4;
+      labelEl.appendChild(input);
+      form.appendChild(labelEl);
+    }
+    form.addEventListener("submit", submitSection);
+    card.appendChild(form);
+  } else {
+    const body = doc.createElement("div");
+    body.className = "workshop-section-body";
+    for (const [path, label] of group.fields) {
+      const row = doc.createElement("p");
+      const strong = doc.createElement("strong");
+      strong.textContent = `${label}: `;
+      const span = doc.createElement("span");
+      span.textContent = formatPerson(valueFor(state.publicPreview || state.sheet?.structuredProfile || structuredProfileFallback(null), path));
+      row.appendChild(strong);
+      row.appendChild(span);
+      body.appendChild(row);
+    }
+    card.appendChild(body);
+    const actions = doc.createElement("div");
+    actions.className = "workshop-actions";
+    const edit = doc.createElement("button");
+    edit.type = "button";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => onRefresh({ editingSection: group.key, draftProfile: clone(state.sheet?.structuredProfile || structuredProfileFallback(null)), aiDraft: null }));
+    actions.appendChild(edit);
+    if (state.aiDraft?.sectionPath === group.fields[0][0] && state.aiDraft.state === "draft") {
+      const candidate = doc.createElement("p");
+      candidate.className = "workshop-candidate";
+      candidate.textContent = `AI candidate: ${state.aiDraft.candidateText || state.aiDraft.content || "Pending"}`;
+      actions.appendChild(candidate);
+      const accept = doc.createElement("button");
+      accept.type = "button";
+      accept.textContent = "Accept AI suggestion";
+      accept.addEventListener("click", async () => {
+        const response = await shell.api(`/api/campaigns/${state.campaignId}/ai/drafts/${state.aiDraft.draftId}/accept`, {
+          method: "POST",
+          operation: "accept-player-ai-draft",
+          body: JSON.stringify({}),
+        });
+        if (!response.ok) return shell.pageError(response.error?.message || "Failed to accept AI suggestion.");
+        onRefresh({ aiDraft: null, statusMessage: "AI suggestion accepted." });
+        await loadWorkspace(shell, state.campaignId, shell.pageContext.kind, onRefresh);
+      });
+      const reject = doc.createElement("button");
+      reject.type = "button";
+      reject.textContent = "Reject AI suggestion";
+      reject.addEventListener("click", () => onRefresh({ aiDraft: null, statusMessage: "AI suggestion rejected." }));
+      actions.appendChild(accept);
+      actions.appendChild(reject);
+    }
+    card.appendChild(actions);
+  }
+  return card;
+}
+
+async function loadWorkspace(shell, campaignId, kind, onRefresh) {
   const response = await shell.api(`/api/campaigns/${campaignId}`, { operation: "load-campaign" });
   if (!response.ok) {
     if (kind === "player workspace" && response.error?.code === "forbidden") {
@@ -24,10 +228,7 @@ async function loadWorkspace(shell, campaignId, kind) {
       if (!joined.ok) return shell.pageError(joined.error?.message || "Failed to join campaign.");
       const retry = await shell.api(`/api/campaigns/${campaignId}`, { operation: "load-campaign" });
       if (!retry.ok) return shell.pageError(retry.error?.message || "Failed to load campaign.");
-      if (retry.data.workspaceKind !== kind) {
-        shell.pageError("This workspace is unavailable for the current identity.");
-        return null;
-      }
+      if (retry.data.workspaceKind !== kind) return shell.pageError("This workspace is unavailable for the current identity.");
       return retry.data;
     }
     return shell.pageError(response.error?.message || "Failed to load campaign.");
@@ -39,93 +240,118 @@ async function loadWorkspace(shell, campaignId, kind) {
   return response.data;
 }
 
-function profileValue(profile, path) {
-  return path.split(".").reduce((value, key) => value?.[key], profile) || "";
-}
-
-function setProfileValue(profile, path, value) {
-  const parts = path.split(".");
-  let cursor = profile;
-  for (let i = 0; i < parts.length - 1; i += 1) {
-    const key = parts[i];
-    cursor[key] = cursor[key] && typeof cursor[key] === "object" ? cursor[key] : {};
-    cursor = cursor[key];
+function renderReadablePreview(doc, sheet) {
+  const preview = el("publicPreview", doc);
+  if (!preview) return;
+  preview.innerHTML = "";
+  const data = publicProjection(sheet);
+  for (const [section, value] of Object.entries(data)) {
+    const block = doc.createElement("section");
+    const heading = doc.createElement("h3");
+    heading.textContent = section;
+    const body = doc.createElement("pre");
+    body.textContent = typeof value === "string" ? value || "None yet" : JSON.stringify(value, null, 2);
+    block.appendChild(heading);
+    block.appendChild(body);
+    preview.appendChild(block);
   }
-  cursor[parts.at(-1)] = value;
 }
 
-function renderWorkshop(doc, sheet, canEdit) {
-  const container = el("characterWorkshopFields", doc);
-  if (!container) return;
-  const profile = sheet?.structuredProfile || {};
-  const fields = [
-    ["Identity", [["identity.name", "Name"], ["identity.shortDescription", "Short description"], ["identity.ancestry", "Ancestry"], ["identity.characterClass", "Class"], ["identity.role", "Role"]]],
-    ["Appearance", [["appearance.text", "Appearance"]]],
-    ["Personality", [["personality.traits", "Traits"], ["personality.motivation", "Motivation"], ["personality.fears", "Fears"], ["personality.mannerisms", "Mannerisms"], ["personality.speechStyle", "Speech style"]]],
-    ["Backstory", [["backstory.text", "Backstory"], ["backstory.importantNpc", "Important NPC"], ["backstory.openHooks", "Open hooks"]]],
-    ["Campaign integration", [["campaignIntegration.reasonToJoin", "Reason to join"], ["campaignIntegration.linksToOtherCharacters", "Links to other characters"], ["campaignIntegration.gmUsableHooks", "GM-usable hooks"], ["campaignIntegration.boundaries", "Boundaries"]]],
-    ["Mechanics", [["mechanics.text", "Mechanics text"]]],
-    ["Public notes", [["publicNotes", "Public notes"]]],
-    ["GM hooks", [["gmHooks", "GM hooks"]]],
-    ["Player intent", [["playerIntent.playStyle", "Play style"], ["playerIntent.themes", "Themes"], ["playerIntent.aiHelpMode", "AI help mode"]]],
-  ];
-  container.innerHTML = fields.map(([label, group]) => `<fieldset class="workshop-group"><legend>${label}</legend>${group.map(([name, labelText]) => `<label class="workshop-field">${labelText}<textarea name="${name}" ${canEdit ? "" : "disabled"}>${profileValue(profile, name)}</textarea></label>`).join("")}</fieldset>`).join("");
-}
-
-function buildDraftFromForm(form, baseSheet) {
-  const profile = JSON.parse(JSON.stringify(baseSheet?.structuredProfile || {}));
-  const fd = new FormData(form);
-  for (const [name, value] of fd.entries()) setProfileValue(profile, name, String(value));
-  return profile;
+async function renderWorkspace(shell, kind, state, onRefresh) {
+  const doc = shell.document;
+  const title = el("campaignTitle", doc);
+  const subtitle = el("campaignSubtitle", doc);
+  const details = el("workspaceDetails", doc);
+  const workshop = el("characterWorkshop", doc);
+  const sheet = state.sheet;
+  if (title) title.textContent = state.campaign?.title || "Campaign";
+  if (subtitle) subtitle.textContent = `${kind === "player workspace" ? "Player Workspace" : "Game Master Workspace"} · GM ${state.campaign?.gm?.nickname || "Unknown"} · ${Array.isArray(state.participants) ? state.participants.length : 0} participant${Array.isArray(state.participants) && state.participants.length === 1 ? "" : "s"}`;
+  if (details) details.textContent = JSON.stringify({
+    campaignTitle: state.campaign?.title || "",
+    sheetStatus: sheet ? { sheetId: sheet.sheetId, state: sheet.state } : { sheetId: "", state: "none" },
+  }, null, 2);
+  if (workshop) {
+    workshop.innerHTML = "";
+    if (kind === "player workspace") {
+      const profile = structuredProfileFallback(sheet);
+      const groups = sectionGroups(profile, true);
+      for (const group of groups) workshop.appendChild(renderSectionCard(doc, shell, state, group, false, onRefresh));
+      renderReadablePreview(doc, sheet || { structuredProfile: structuredProfileFallback(null) });
+    } else {
+      const sections = [
+        ["Participants", state.participants || []],
+        ["Materials", state.materials || []],
+        ["Assets", state.assets || []],
+        ["AI drafts", state.aiDrafts || []],
+        ["Events", state.events || []],
+        ["Credits", state.credits || []],
+      ];
+      for (const [titleText, value] of sections) {
+        const section = doc.createElement("section");
+        section.className = "workshop-section";
+        const heading = doc.createElement("h3");
+        heading.textContent = titleText;
+        const body = doc.createElement("pre");
+        body.textContent = JSON.stringify(value, null, 2);
+        section.appendChild(heading);
+        section.appendChild(body);
+        workshop.appendChild(section);
+      }
+    }
+  }
 }
 
 export async function initializeWorkspaceApp(shell, kind) {
   const doc = shell.document;
+  const params = new URL(shell.locationApi?.href || doc.location?.href || "http://localhost/workspace.html").searchParams;
+  const campaignId = params.get("campaignId") || "";
+  const state = { campaignId, editingSection: "", draftProfile: null, aiDraft: null, sheet: null, campaign: null, participants: [], materials: [], assets: [], aiDrafts: [], events: [], credits: [], publicPreview: null };
+  shell.setPageContext({ kind, campaignId });
   shell.handleNotification = async (notification) => {
     if (!notification || notification.scope !== "campaign") return;
     if (notification.campaignId !== (shell.pageContext?.campaignId || "")) return;
-    await loadWorkspace(shell, shell.pageContext.campaignId, kind);
+    await refresh();
   };
-  const params = new URL(shell.locationApi?.href || doc.location?.href || "http://localhost/workspace.html").searchParams;
-  const campaignId = params.get("campaignId") || "";
-  shell.setPageContext({ kind, campaignId });
-  renderStatus(doc, "status", campaignId ? "Loading workspace." : "Campaign id is missing. Return to Campaigns.");
-  if (!campaignId) return;
-  const title = el("campaignTitle", doc);
-  const subtitle = el("campaignSubtitle", doc);
-  const details = el("workspaceDetails", doc);
-  const preview = el("publicPreview", doc);
-  const form = el("characterWorkshopForm", doc);
+
+  function sync(next) {
+    Object.assign(state, next);
+  }
+
+  async function refresh(overrides = {}) {
+    sync(overrides);
+    const data = await loadWorkspace(shell, state.campaignId, kind, sync);
+    if (!data) return;
+    const identityId = shell.identity?.uuid || shell.identity?.id || "";
+    const sheet = Array.isArray(data.characterSheets) ? data.characterSheets.find((item) => item.playerIdentityId === identityId) || data.characterSheets[0] : null;
+    sync({
+      campaign: data.campaign,
+      participants: data.participants || [],
+      materials: data.materials || [],
+      assets: data.assets || [],
+      aiDrafts: data.aiDrafts || [],
+      events: data.events || [],
+      credits: data.credits || [],
+      sheet,
+      sheetId: sheet?.sheetId || "",
+      publicPreview: previewProfile(sheet),
+      editingSection: overrides.editingSection || state.editingSection,
+      draftProfile: overrides.draftProfile || state.draftProfile,
+      aiDraft: overrides.aiDraft === undefined ? state.aiDraft : overrides.aiDraft,
+    });
+    await renderWorkspace(shell, kind, state, refresh);
+    renderReadablePreview(doc, sheet || { structuredProfile: structuredProfileFallback(null) });
+    const status = el("status", doc);
+    if (status) status.textContent = overrides.statusMessage || "Workspace ready.";
+  }
+
   const backLink = el("backToDirectory", doc);
   if (backLink) backLink.setAttribute("href", "/");
-  const data = await loadWorkspace(shell, campaignId, kind);
-  if (!data) return;
-  const sheet = Array.isArray(data.characterSheets) ? data.characterSheets.find((item) => item.playerIdentityId === shell.identity.uuid) || data.characterSheets[0] : null;
-  if (title) title.textContent = data.campaign?.title || "Campaign";
-  if (subtitle) subtitle.textContent = `${kind === "player workspace" ? "Player Workspace" : "Game Master Workspace"} · GM ${data.campaign?.gm?.nickname || "Unknown"} · ${Array.isArray(data.participants) ? data.participants.length : 0} participant${Array.isArray(data.participants) && data.participants.length === 1 ? "" : "s"}`;
-  if (details) details.textContent = JSON.stringify({ sheetStatus: sheet ? { sheetId: sheet.sheetId, state: sheet.state } : { sheetId: "", state: "none" } }, null, 2);
-  if (preview) preview.textContent = JSON.stringify(sheet ? {
-    identity: sheet.structuredProfile?.identity || {},
-    appearance: sheet.structuredProfile?.appearance || {},
-    personality: sheet.structuredProfile?.personality || {},
-    backstory: sheet.structuredProfile?.backstory || {},
-    campaignIntegration: sheet.structuredProfile?.campaignIntegration || {},
-    mechanics: sheet.structuredProfile?.mechanics || {},
-    publicNotes: sheet.structuredProfile?.publicNotes || "",
-  } : {}, null, 2);
-  renderWorkshop(doc, sheet, kind === "player workspace");
-  if (form && kind === "player workspace" && sheet) {
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const structuredProfile = buildDraftFromForm(form, sheet);
-      const response = await shell.api(`/api/campaigns/${campaignId}/character-sheets/${sheet.sheetId}`, {
-        method: "PATCH",
-        operation: "save-character-workshop-draft",
-        body: JSON.stringify({ structuredProfile }),
-      });
-      if (response.ok) renderStatus(doc, "status", "Draft saved.");
-      else renderStatus(doc, "status", response.error?.message || "Failed to save draft.");
-    });
+  if (!campaignId) {
+    const status = el("status", doc);
+    if (status) status.textContent = "Campaign id is missing. Return to Campaigns.";
+    return;
   }
-  renderStatus(doc, "status", "Workspace ready.");
+  const status = el("status", doc);
+  if (status) status.textContent = "Loading workspace.";
+  await refresh();
 }

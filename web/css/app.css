@@ -321,6 +321,64 @@ li,
   align-items: center;
 }
 
+.workshop-section {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: rgba(6, 11, 18, 0.72);
+}
+
+.workshop-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.workshop-section-status {
+  font-size: 0.88rem;
+  color: var(--accent-strong);
+}
+
+.workshop-section-form {
+  display: grid;
+  gap: 10px;
+}
+
+.workshop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(5, 10, 16, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.workshop-actions button {
+  min-width: 6rem;
+}
+
+.workshop-field {
+  display: grid;
+  gap: 6px;
+}
+
+.workshop-section-body {
+  display: grid;
+  gap: 4px;
+}
+
+.workshop-candidate {
+  width: 100%;
+}
+
 .campaign-meta {
   font-size: 0.92rem;
 }
