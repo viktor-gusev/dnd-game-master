@@ -7,6 +7,28 @@
 export class Data {
   /** @type {number|undefined} */
   httpPort;
+  /** @type {string|undefined} */
+  dataRoot;
+  /** @type {string|undefined} */
+  aiProvider;
+  /** @type {string|undefined} */
+  openaiApiKey;
+  /** @type {string|undefined} */
+  openaiDefaultModel;
+  /** @type {string|undefined} */
+  openaiImageModel;
+  /** @type {number|undefined} */
+  aiProviderTimeoutMs;
+  /** @type {number|undefined} */
+  aiMaxInputTokens;
+  /** @type {number|undefined} */
+  aiMaxOutputTokens;
+  /** @type {number|undefined} */
+  aiCreditPreauthMultiplier;
+  /** @type {string|undefined} */
+  aiDefaultPricingPolicyId;
+  /** @type {number|undefined} */
+  aiCampaignInitialCredits;
 }
 
 /** @type {Data} */
@@ -17,6 +39,17 @@ let initialized = false;
 
 function resetState() {
   cfg.httpPort = undefined;
+  cfg.dataRoot = undefined;
+  cfg.aiProvider = undefined;
+  cfg.openaiApiKey = undefined;
+  cfg.openaiDefaultModel = undefined;
+  cfg.openaiImageModel = undefined;
+  cfg.aiProviderTimeoutMs = undefined;
+  cfg.aiMaxInputTokens = undefined;
+  cfg.aiMaxOutputTokens = undefined;
+  cfg.aiCreditPreauthMultiplier = undefined;
+  cfg.aiDefaultPricingPolicyId = undefined;
+  cfg.aiCampaignInitialCredits = undefined;
   initialized = false;
 }
 
@@ -58,10 +91,28 @@ export class Factory {
         throw new Error("Runtime configuration is already frozen.");
       }
       if (params.httpPort !== undefined && cfg.httpPort === undefined) cfg.httpPort = params.httpPort;
+      if (params.dataRoot !== undefined && cfg.dataRoot === undefined) cfg.dataRoot = params.dataRoot;
+      if (params.aiProvider !== undefined && cfg.aiProvider === undefined) cfg.aiProvider = params.aiProvider;
+      if (params.openaiApiKey !== undefined && cfg.openaiApiKey === undefined) cfg.openaiApiKey = params.openaiApiKey;
+      if (params.openaiDefaultModel !== undefined && cfg.openaiDefaultModel === undefined) cfg.openaiDefaultModel = params.openaiDefaultModel;
+      if (params.openaiImageModel !== undefined && cfg.openaiImageModel === undefined) cfg.openaiImageModel = params.openaiImageModel;
+      if (params.aiProviderTimeoutMs !== undefined && cfg.aiProviderTimeoutMs === undefined) cfg.aiProviderTimeoutMs = params.aiProviderTimeoutMs;
+      if (params.aiMaxInputTokens !== undefined && cfg.aiMaxInputTokens === undefined) cfg.aiMaxInputTokens = params.aiMaxInputTokens;
+      if (params.aiMaxOutputTokens !== undefined && cfg.aiMaxOutputTokens === undefined) cfg.aiMaxOutputTokens = params.aiMaxOutputTokens;
+      if (params.aiCreditPreauthMultiplier !== undefined && cfg.aiCreditPreauthMultiplier === undefined) cfg.aiCreditPreauthMultiplier = params.aiCreditPreauthMultiplier;
+      if (params.aiDefaultPricingPolicyId !== undefined && cfg.aiDefaultPricingPolicyId === undefined) cfg.aiDefaultPricingPolicyId = params.aiDefaultPricingPolicyId;
+      if (params.aiCampaignInitialCredits !== undefined && cfg.aiCampaignInitialCredits === undefined) cfg.aiCampaignInitialCredits = params.aiCampaignInitialCredits;
     };
     this.freeze = function () {
       if (frozen) return proxy;
       if (cfg.httpPort === undefined) cfg.httpPort = 3000;
+      if (cfg.dataRoot === undefined) cfg.dataRoot = "var/data";
+      if (cfg.aiProvider === undefined) cfg.aiProvider = "fake";
+      if (cfg.aiProviderTimeoutMs === undefined) cfg.aiProviderTimeoutMs = 60000;
+      if (cfg.aiMaxInputTokens === undefined) cfg.aiMaxInputTokens = 12000;
+      if (cfg.aiMaxOutputTokens === undefined) cfg.aiMaxOutputTokens = 2048;
+      if (cfg.aiCreditPreauthMultiplier === undefined) cfg.aiCreditPreauthMultiplier = 1;
+      if (cfg.aiCampaignInitialCredits === undefined) cfg.aiCampaignInitialCredits = 100;
       frozen = true;
       initialized = true;
       return proxy;

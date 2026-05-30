@@ -40,8 +40,34 @@ const STRUCTURED_PROFILE_DEFAULTS = Object.freeze({
   playerIntent: { playStyle: "", themes: "", aiHelpMode: "" },
 });
 
+const AI_POLICY_PROFILES = Object.freeze({
+  "player-character-section-discussion": { ownerRole: "player" },
+  "player-character-image-prep": { ownerRole: "player" },
+  "gm-campaign-material-prep": { ownerRole: "game_master" },
+  "gm-campaign-brief-prep": { ownerRole: "game_master" },
+  "gm-image-material-prep": { ownerRole: "game_master" },
+});
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function normalizeText(value) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function safeInt(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.trunc(num) : fallback;
 }
 
 function normalizeStructuredProfile(profile = {}) {
@@ -190,6 +216,11 @@ async function appendNdjson(file, record) {
   await fs.appendFile(file, `${JSON.stringify(record)}\n`, "utf8");
 }
 
+async function sha256(value) {
+  const crypto = await import("node:crypto");
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
 export default class Dnd_Gm_Store_File_Data {
   constructor({ now = () => new Date() } = {}) {
     this.root = process.env.DND_GM_DATA_ROOT || `${process.cwd()}/var/data`;
@@ -204,8 +235,16 @@ export default class Dnd_Gm_Store_File_Data {
     this.assetsJson = (campaignId) => `${this.campaignRoot(campaignId)}/assets/assets.json`;
     this.characterSheetsJson = (campaignId) => `${this.campaignRoot(campaignId)}/character-sheets/character-sheets.json`;
     this.aiDraftsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-drafts/ai-drafts.json`;
+    this.aiSessionsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-sessions/ai-sessions.json`;
+    this.aiThreadsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-threads/ai-threads.json`;
+    this.aiMessagesJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-messages/ai-messages.json`;
+    this.aiRunsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-runs/ai-runs.json`;
+    this.aiAssetsJson = (campaignId) => `${this.campaignRoot(campaignId)}/ai-assets/ai-assets.json`;
+    this.aiIdempotencyJson = (campaignId, identityId, endpointKey, clientRequestId) => `${this.campaignRoot(campaignId)}/ai/idempotency/${identityId}/${endpointKey}/${clientRequestId}.json`;
+    this.walletJson = (campaignId) => `${this.campaignRoot(campaignId)}/credits/wallet.json`;
     this.eventsNdjson = (campaignId) => `${this.campaignRoot(campaignId)}/events.ndjson`;
     this.creditsNdjson = (campaignId) => `${this.campaignRoot(campaignId)}/credits.ndjson`;
+    this.usageNdjson = (campaignId) => `${this.campaignRoot(campaignId)}/usage.ndjson`;
 
     this.init = async () => {
       await ensureDir(this.root);
@@ -245,6 +284,11 @@ export default class Dnd_Gm_Store_File_Data {
 
     this.appendEvent = async (campaignId, event) => appendNdjson(this.eventsNdjson(campaignId), event);
     this.appendCredit = async (campaignId, credit) => appendNdjson(this.creditsNdjson(campaignId), credit);
+    this.appendUsage = async (campaignId, usage) => appendNdjson(this.usageNdjson(campaignId), usage);
+    this.loadIdempotencyRecord = async (campaignId, identityId, endpointKey, clientRequestId) => readJson(this.aiIdempotencyJson(campaignId, identityId, endpointKey, clientRequestId), null);
+    this.saveIdempotencyRecord = async (campaignId, identityId, endpointKey, clientRequestId, record) => {
+      await writeJson(this.aiIdempotencyJson(campaignId, identityId, endpointKey, clientRequestId), record);
+    };
 
     this.readCampaign = async (campaignId) => {
       const dir = this.campaignRoot(campaignId);
@@ -259,8 +303,15 @@ export default class Dnd_Gm_Store_File_Data {
         assets: (await readJson(this.assetsJson(campaignId), { assets: [] })).assets || [],
         characterSheets: (await readJson(this.characterSheetsJson(campaignId), { characterSheets: [] })).characterSheets || [],
         aiDrafts: (await readJson(this.aiDraftsJson(campaignId), { aiDrafts: [] })).aiDrafts || [],
+        aiSessions: (await readJson(this.aiSessionsJson(campaignId), { aiSessions: [] })).aiSessions || [],
+        aiThreads: (await readJson(this.aiThreadsJson(campaignId), { aiThreads: [] })).aiThreads || [],
+        aiMessages: (await readJson(this.aiMessagesJson(campaignId), { aiMessages: [] })).aiMessages || [],
+        aiRuns: (await readJson(this.aiRunsJson(campaignId), { aiRuns: [] })).aiRuns || [],
+        aiAssets: (await readJson(this.aiAssetsJson(campaignId), { aiAssets: [] })).aiAssets || [],
+        wallet: await readJson(this.walletJson(campaignId), null),
         events: await readNdjson(this.eventsNdjson(campaignId)),
         credits: await readNdjson(this.creditsNdjson(campaignId)),
+        usage: await readNdjson(this.usageNdjson(campaignId)),
       };
     };
 
@@ -275,8 +326,14 @@ export default class Dnd_Gm_Store_File_Data {
       assets: Array.isArray(current.assets) ? current.assets : [],
       characterSheets: Array.isArray(current.characterSheets) ? current.characterSheets.map((sheet) => normalizeSheet(sheet, current.campaign.campaignId)) : [],
       aiDrafts: Array.isArray(current.aiDrafts) ? current.aiDrafts : [],
+      aiSessions: Array.isArray(current.aiSessions) ? current.aiSessions : [],
+      aiThreads: Array.isArray(current.aiThreads) ? current.aiThreads : [],
+      aiMessages: Array.isArray(current.aiMessages) ? current.aiMessages : [],
+      aiRuns: Array.isArray(current.aiRuns) ? current.aiRuns : [],
+      aiAssets: Array.isArray(current.aiAssets) ? current.aiAssets : [],
       events: Array.isArray(current.events) ? current.events : [],
       credits: Array.isArray(current.credits) ? current.credits : [],
+      usage: Array.isArray(current.usage) ? current.usage : [],
       lastActivityAt: current.campaign.lastActivityAt || current.campaign.createdAt,
       createdAt: current.campaign.createdAt,
       currentUserParticipant: !!identityId && Array.isArray(current.participants) && current.participants.some((participant) => participant.identityId === identityId),
@@ -335,7 +392,15 @@ export default class Dnd_Gm_Store_File_Data {
       await writeJson(this.assetsJson(campaignId), { assets: [] });
       await writeJson(this.characterSheetsJson(campaignId), { characterSheets: [] });
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: [] });
+      await writeJson(this.aiSessionsJson(campaignId), { aiSessions: [] });
+      await writeJson(this.aiThreadsJson(campaignId), { aiThreads: [] });
+      await writeJson(this.aiMessagesJson(campaignId), { aiMessages: [] });
+      await writeJson(this.aiRunsJson(campaignId), { aiRuns: [] });
+      await writeJson(this.aiAssetsJson(campaignId), { aiAssets: [] });
+      await writeJson(this.walletJson(campaignId), { campaignId, balanceCredits: this.getAiRuntimeConfig().initialCredits, pricingPolicyId: this.getAiRuntimeConfig().pricingPolicyId || "pricing-openai-standard-v1", createdAt: now, updatedAt: now });
+      await ensureDir(`${this.campaignRoot(campaignId)}/ai/idempotency`);
       await this.appendEvent(campaignId, { eventId: `evt_${campaignId}_created`, campaignId, type: "campaign.created", actorId: identity.id, createdAt: now, payload: { title: campaign.title } });
+      await this.appendCredit(campaignId, { creditId: `credit_${campaignId}_grant`, campaignId, actorId: identity.id, entryType: "grant", creditsDelta: 100, creditsBefore: 0, creditsAfter: 100, createdAt: now });
       return this.loadCampaign(campaignId, identity.id);
     };
 
@@ -630,6 +695,338 @@ export default class Dnd_Gm_Store_File_Data {
       await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
       await this.touchCampaign(campaignId, identity.id, "ai.draft.rejected", { draftId });
       return draft;
+    };
+
+    this.getAiRuntimeConfig = () => ({
+      provider: process.env.AI_PROVIDER || "fake",
+      openaiApiKey: process.env.OPENAI_API_KEY || "",
+      openaiDefaultModel: process.env.OPENAI_DEFAULT_MODEL || "gpt-4.1-mini",
+      openaiImageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
+      timeoutMs: safeInt(process.env.AI_PROVIDER_TIMEOUT_MS, 60000),
+      maxInputTokens: safeInt(process.env.AI_MAX_INPUT_TOKENS, 12000),
+      maxOutputTokens: safeInt(process.env.AI_MAX_OUTPUT_TOKENS, 2048),
+      creditPreauthMultiplier: Math.max(1, Number(process.env.AI_CREDIT_PREAUTH_MULTIPLIER || 1) || 1),
+      pricingPolicyId: process.env.AI_DEFAULT_PRICING_POLICY_ID || "",
+      initialCredits: safeInt(process.env.AI_CAMPAIGN_INITIAL_CREDITS, 100),
+    });
+
+    this.getPricingPolicy = async (campaignId) => {
+      const policy = {
+        id: this.getAiRuntimeConfig().pricingPolicyId || "pricing-openai-standard-v1",
+        name: "OpenAI Standard",
+        provider: "openai",
+        model: this.getAiRuntimeConfig().openaiDefaultModel,
+        modality: "text",
+        validFrom: this.timestamp(),
+        validTo: "",
+        creditUsdValue: 0.01,
+        markupMultiplier: 1.25,
+        fixedOperationFeeCredits: 1,
+        tokenRates: {
+          textInput: 0.000001,
+          textCachedInput: 0.0000005,
+          textOutput: 0.000002,
+          reasoning: 0.000002,
+        },
+        imageRates: {
+          generation: 0.02,
+          editing: 0.02,
+        },
+      };
+      return policy;
+    };
+
+    this.normalizeUsage = (usage = {}, operation = "text-discussion", provider = "openai", model = "") => {
+      const items = Array.isArray(usage.usageItems) ? usage.usageItems : [];
+      const normalizedItems = items.map((item) => ({
+        kind: String(item.kind || "text-output-token"),
+        unit: String(item.unit || "token"),
+        quantity: safeInt(item.quantity, 0),
+        providerUnitPriceUsd: Number(item.providerUnitPriceUsd || 0),
+        providerCostUsd: Number(item.providerCostUsd || 0),
+      }));
+      const providerCostUsd = normalizedItems.reduce((sum, item) => sum + item.providerCostUsd, 0);
+      return {
+        id: usage.id || `usage_${Date.now().toString(16)}`,
+        campaignId: usage.campaignId || "",
+        sessionId: usage.sessionId || "",
+        threadId: usage.threadId || "",
+        runId: usage.runId || "",
+        initiatorIdentityId: usage.initiatorIdentityId || "",
+        payerKind: usage.payerKind || "campaign-wallet",
+        payerCampaignId: usage.payerCampaignId || "",
+        provider,
+        model,
+        modality: usage.modality || "text",
+        operation,
+        inputTokens: safeInt(usage.inputTokens, 0),
+        cachedInputTokens: safeInt(usage.cachedInputTokens, 0),
+        outputTokens: safeInt(usage.outputTokens, 0),
+        reasoningTokens: safeInt(usage.reasoningTokens, 0),
+        imageInputTokens: safeInt(usage.imageInputTokens, 0),
+        imageOutputTokens: safeInt(usage.imageOutputTokens, 0),
+        usageItems: normalizedItems,
+        providerCostUsd,
+        pricingSource: usage.pricingSource || "openai-responses",
+        createdAt: usage.createdAt || this.timestamp(),
+      };
+    };
+
+    this.computeEstimatedChargeCredits = async (policy, operation = "text-discussion", operationEstimate = {}) => {
+      const estimatedProviderCostUsd = Number(operationEstimate.providerCostUsd || 0);
+      const estimatedUserChargeCredits = Math.ceil(((estimatedProviderCostUsd * policy.markupMultiplier) / policy.creditUsdValue) + policy.fixedOperationFeeCredits);
+      return Math.ceil(estimatedUserChargeCredits * this.getAiRuntimeConfig().creditPreauthMultiplier);
+    };
+
+    this.computeChargeCredits = (policy, usageRecord) => Math.ceil(((Number(usageRecord.providerCostUsd || 0) * policy.markupMultiplier) / policy.creditUsdValue) + policy.fixedOperationFeeCredits);
+
+    this.getCampaignWallet = async (campaignId) => {
+      const existing = await readJson(this.walletJson(campaignId), null);
+      if (existing) return existing;
+      const now = this.timestamp();
+      const wallet = {
+        campaignId,
+        balanceCredits: this.getAiRuntimeConfig().initialCredits,
+        pricingPolicyId: this.getAiRuntimeConfig().pricingPolicyId || "pricing-openai-standard-v1",
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.saveCampaignWallet(campaignId, wallet);
+      return wallet;
+    };
+
+    this.saveCampaignWallet = async (campaignId, wallet) => {
+      await writeJson(this.walletJson(campaignId), wallet);
+      return wallet;
+    };
+
+    this.callAiProvider = async ({ session, thread, messages, operation }) => {
+      const cfg = this.getAiRuntimeConfig();
+      if (cfg.provider !== "openai") {
+        return {
+          provider: "fake",
+          model: "fake",
+          providerResponseId: `resp_${Date.now().toString(16)}`,
+          outputText: `Draft response: ${messages.at(-1)?.text || ""}`.trim(),
+          usage: this.normalizeUsage({
+            inputTokens: 1,
+            outputTokens: 1,
+            usageItems: [{ kind: "text-output-token", unit: "token", quantity: 1, providerUnitPriceUsd: 0, providerCostUsd: 0 }],
+          }, operation, "fake", "fake"),
+          status: "completed",
+          assistantMessages: [],
+        };
+      }
+      if (!cfg.openaiApiKey) throw Object.assign(new Error("Missing OpenAI API key."), { code: "ai.provider.unavailable" });
+      const body = {
+        model: session.mode && session.mode.startsWith("image") ? cfg.openaiImageModel : cfg.openaiDefaultModel,
+        instructions: `You are assisting in campaign preparation. Policy profile: ${session.policyProfile}. Target kind: ${session.targetKind}.`,
+        input: messages.map((message) => ({
+          role: message.role === "assistant" ? "assistant" : "user",
+          content: [{ type: "input_text", text: message.text || "" }],
+        })),
+        max_output_tokens: cfg.maxOutputTokens,
+      };
+      if (thread.lastResponseId) body.previous_response_id = thread.lastResponseId;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new Error("OpenAI request timed out.")), cfg.timeoutMs);
+      try {
+        const response = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${cfg.openaiApiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          const code = response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500 ? "ai.provider.unavailable" : "ai.provider.failed";
+          throw Object.assign(new Error(`OpenAI request failed with status ${response.status}.`), { code, details: { status: response.status, body: text.slice(0, 500) } });
+        }
+        const json = await response.json();
+        const outputText = Array.isArray(json.output) ? json.output.flatMap((item) => Array.isArray(item.content) ? item.content : []).map((content) => content?.text || content?.input_text || "").filter(Boolean).join("\n").trim() : "";
+        const usage = this.normalizeUsage({
+          inputTokens: safeInt(json.usage?.input_tokens, 0),
+          cachedInputTokens: safeInt(json.usage?.input_tokens_details?.cached_tokens, 0),
+          outputTokens: safeInt(json.usage?.output_tokens, 0),
+          reasoningTokens: safeInt(json.usage?.output_tokens_details?.reasoning_tokens, 0),
+          usageItems: [],
+        }, operation, "openai", body.model);
+        return {
+          provider: "openai",
+          model: body.model,
+          providerResponseId: json.id || "",
+          outputText,
+          usage,
+          status: outputText ? "completed" : "failed",
+          assistantMessages: outputText ? [{ role: "assistant", contentType: "text", text: outputText, providerResponseId: json.id || "" }] : [],
+        };
+      } catch (error) {
+        if (error?.name === "AbortError") throw Object.assign(new Error("OpenAI request timed out."), { code: "ai.provider.unavailable" });
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    this.createAIPrepSession = async (campaignId, body, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const profile = AI_POLICY_PROFILES[body.policyProfile] || null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      if (profile?.ownerRole === "game_master" && !isGM) throw Object.assign(new Error("Only the Game Master may create this AI session."), { code: "forbidden" });
+      if (profile?.ownerRole === "player" && isGM) throw Object.assign(new Error("Game Master may not create a player-owned AI session."), { code: "forbidden" });
+      const session = {
+        id: `ai_session_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
+        campaignId,
+        ownerIdentityId: identity.id,
+        ownerRole: isGM ? "game_master" : "player",
+        targetKind: String(body.targetKind || ""),
+        targetId: String(body.targetId || ""),
+        sectionKey: String(body.sectionKey || ""),
+        mode: String(body.mode || "text-discussion"),
+        policyProfile: String(body.policyProfile || "player-character-section-discussion"),
+        status: "active",
+        title: String(body.title || "").trim() || "AI session",
+        summary: null,
+        activeThreadId: null,
+        createdAt: this.timestamp(),
+        updatedAt: this.timestamp(),
+        closedAt: null,
+      };
+      current.aiSessions.push(session);
+      await writeJson(this.aiSessionsJson(campaignId), { aiSessions: current.aiSessions });
+      await this.touchCampaign(campaignId, identity.id, "ai.session.created", { sessionId: session.id });
+      return session;
+    };
+
+    this.listAIPrepSessions = async (campaignId, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const isGM = current.campaign.gm.uuid === identity.id;
+      return (current.aiSessions || []).filter((session) => isGM || session.ownerIdentityId === identity.id);
+    };
+
+    this.postAIPrepMessage = async (campaignId, sessionId, body, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const session = (current.aiSessions || []).find((item) => item.id === sessionId);
+      if (!session) return null;
+      if (session.ownerIdentityId !== identity.id && current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Forbidden."), { code: "forbidden" });
+      const clientRequestId = String(body.clientRequestId || "").trim();
+      if (!clientRequestId) throw Object.assign(new Error("clientRequestId is required."), { code: "invalid_input" });
+      const endpointKey = "POST ai.sessions.messages";
+      const normalizedText = normalizeText(body.text);
+      const effectiveInput = stableStringify({
+        campaignId,
+        identityId: identity.id,
+        endpointKey,
+        sessionId,
+        operation: body.operation || "text-discussion",
+        contentType: body.contentType || "text",
+        text: normalizedText,
+        assetRefs: Array.isArray(body.assetRefs) ? [...body.assetRefs] : [],
+        draftRefs: Array.isArray(body.draftRefs) ? [...body.draftRefs] : [],
+        policyProfile: session.policyProfile,
+        targetKind: session.targetKind,
+        targetId: session.targetId,
+        sectionKey: session.sectionKey,
+      });
+      const requestHash = await sha256(effectiveInput);
+      const idempotency = await this.loadIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId);
+      if (idempotency) {
+        if (idempotency.requestHash !== requestHash) throw Object.assign(new Error("Idempotency conflict."), { code: "ai.idempotency_conflict" });
+        if (idempotency.status === "completed" && idempotency.responseRef) {
+          return { message: current.aiMessages.find((item) => item.id === idempotency.responseRef.userMessageId) || null, run: current.aiRuns.find((item) => item.id === idempotency.runId) || null, responseMessage: current.aiMessages.find((item) => item.id === idempotency.responseRef.assistantMessageId) || null };
+        }
+      }
+      await this.saveIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId, { clientRequestId, campaignId, identityId: identity.id, endpointKey, sessionId, requestHash, status: "started", createdAt: this.timestamp() });
+      const thread = {
+        id: session.activeThreadId || `ai_thread_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
+        sessionId,
+        campaignId,
+        provider: "openai",
+        model: this.getAiRuntimeConfig().openaiDefaultModel,
+        mode: session.mode,
+        providerConversationId: null,
+        lastResponseId: null,
+        status: "active",
+        createdAt: this.timestamp(),
+        updatedAt: this.timestamp(),
+      };
+      if (!session.activeThreadId) session.activeThreadId = thread.id;
+      const existingThreadIndex = current.aiThreads.findIndex((item) => item.id === thread.id);
+      if (existingThreadIndex >= 0) current.aiThreads[existingThreadIndex] = thread;
+      else current.aiThreads.push(thread);
+      const userMessage = { id: `ai_msg_${Date.now().toString(16)}u`, sessionId, threadId: thread.id, role: "user", contentType: body.contentType || "text", text: normalizedText, assetRefs: Array.isArray(body.assetRefs) ? body.assetRefs : [], draftRefs: Array.isArray(body.draftRefs) ? body.draftRefs : [], providerResponseId: null, createdAt: this.timestamp() };
+      current.aiMessages.push(userMessage);
+      const run = { id: `ai_run_${Date.now().toString(16)}`, sessionId, threadId: thread.id, campaignId, provider: "openai", model: thread.model, operation: body.operation || "text-discussion", inputMessageIds: [userMessage.id], outputMessageIds: [], inputAssetIds: Array.isArray(body.assetRefs) ? body.assetRefs : [], outputAssetIds: [], relatedDraftId: "", providerResponseId: null, usageRecordId: null, status: "started", errorCode: "", createdAt: this.timestamp(), completedAt: null };
+      current.aiRuns.push(run);
+      await writeJson(this.aiSessionsJson(campaignId), { aiSessions: current.aiSessions });
+      await writeJson(this.aiThreadsJson(campaignId), { aiThreads: current.aiThreads });
+      await writeJson(this.aiMessagesJson(campaignId), { aiMessages: current.aiMessages });
+      await writeJson(this.aiRunsJson(campaignId), { aiRuns: current.aiRuns });
+      const policy = await this.getPricingPolicy(campaignId);
+      const estimateCredits = await this.computeEstimatedChargeCredits(policy, body.operation || "text-discussion", { providerCostUsd: 0.01 });
+      const wallet = await this.getCampaignWallet(campaignId);
+      if (!wallet || safeInt(wallet.balanceCredits, 0) < estimateCredits) throw Object.assign(new Error("Campaign wallet does not satisfy the required estimate check."), { code: "ai.wallet.insufficient_credits" });
+      const providerResult = await this.callAiProvider({ session, thread, messages: [userMessage], operation: body.operation || "text-discussion" });
+      const assistantMessages = [];
+      for (const assistantMessage of providerResult.assistantMessages || []) {
+        assistantMessages.push({ id: `ai_msg_${Date.now().toString(16)}a`, sessionId, threadId: thread.id, role: "assistant", contentType: assistantMessage.contentType || "text", text: assistantMessage.text || "", assetRefs: [], draftRefs: [], providerResponseId: providerResult.providerResponseId || null, createdAt: this.timestamp() });
+      }
+      current.aiMessages.push(...assistantMessages);
+      const usageRecord = this.normalizeUsage({
+        id: `usage_${Date.now().toString(16)}`,
+        campaignId,
+        sessionId,
+        threadId: thread.id,
+        runId: run.id,
+        initiatorIdentityId: identity.id,
+        payerKind: "campaign-wallet",
+        payerCampaignId: campaignId,
+        provider: providerResult.provider,
+        model: providerResult.model,
+        modality: "text",
+        operation: body.operation || "text-discussion",
+        inputTokens: providerResult.usage.inputTokens,
+        cachedInputTokens: providerResult.usage.cachedInputTokens,
+        outputTokens: providerResult.usage.outputTokens,
+        reasoningTokens: providerResult.usage.reasoningTokens,
+        imageInputTokens: providerResult.usage.imageInputTokens,
+        imageOutputTokens: providerResult.usage.imageOutputTokens,
+        usageItems: providerResult.usage.usageItems,
+        providerCostUsd: providerResult.usage.providerCostUsd,
+        pricingSource: "openai-responses",
+        createdAt: this.timestamp(),
+      }, body.operation || "text-discussion", providerResult.provider, providerResult.model);
+      await this.appendUsage(campaignId, usageRecord);
+      run.outputMessageIds = assistantMessages.map((message) => message.id);
+      run.providerResponseId = providerResult.providerResponseId;
+      run.usageRecordId = usageRecord.id;
+      run.status = providerResult.status === "completed" ? "completed" : "failed";
+      run.completedAt = this.timestamp();
+      thread.lastResponseId = providerResult.providerResponseId || thread.lastResponseId;
+      thread.updatedAt = this.timestamp();
+      session.activeThreadId = thread.id;
+      session.updatedAt = this.timestamp();
+      await writeJson(this.aiSessionsJson(campaignId), { aiSessions: current.aiSessions });
+      await writeJson(this.aiThreadsJson(campaignId), { aiThreads: current.aiThreads });
+      await writeJson(this.aiMessagesJson(campaignId), { aiMessages: current.aiMessages });
+      await writeJson(this.aiRunsJson(campaignId), { aiRuns: current.aiRuns });
+      const finalChargeCredits = this.computeChargeCredits(policy, usageRecord);
+      const nextBalance = safeInt(wallet.balanceCredits, 0) - finalChargeCredits;
+      if (nextBalance < 0) throw Object.assign(new Error("Campaign wallet charge failed."), { code: "ai.wallet.charge_failed" });
+      wallet.balanceCredits = nextBalance;
+      wallet.updatedAt = this.timestamp();
+      await this.saveCampaignWallet(campaignId, wallet);
+      const ledgerEntry = { id: `ledger_${Date.now().toString(16)}`, campaignId, entryType: "charge", reason: "ai-usage", usageRecordId: usageRecord.id, sessionId, runId: run.id, initiatorIdentityId: identity.id, payerKind: "campaign-wallet", payerCampaignId: campaignId, creditsBefore: nextBalance + finalChargeCredits, creditsDelta: -finalChargeCredits, creditsCharged: finalChargeCredits, creditsAfter: nextBalance, providerCostUsd: usageRecord.providerCostUsd, userChargeUsd: finalChargeCredits * policy.creditUsdValue, platformMarginUsd: (finalChargeCredits * policy.creditUsdValue) - usageRecord.providerCostUsd, pricingPolicyId: policy.id, pricingSnapshot: policy, createdAt: this.timestamp() };
+      await this.appendCredit(campaignId, ledgerEntry);
+      await this.saveIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId, { clientRequestId, campaignId, identityId: identity.id, endpointKey, sessionId, requestHash, status: "completed", responseRef: { userMessageId: userMessage.id, assistantMessageId: assistantMessages[0]?.id || null }, runId: run.id, usageRecordId: usageRecord.id, ledgerEntryId: ledgerEntry.id, createdAt: this.timestamp() });
+      await this.touchCampaign(campaignId, identity.id, "ai.session.message", { sessionId });
+      return { message: userMessage, run, responseMessage: assistantMessages[0] || null };
     };
 
     this.listCharacterSheetsView = async (campaignId, identity) => {

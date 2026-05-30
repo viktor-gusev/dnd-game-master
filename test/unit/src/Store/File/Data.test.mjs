@@ -176,3 +176,19 @@ test("file store cleanup removes expired campaigns and the 10-day boundary remai
   assert.ok(await fs.stat(path.join(campaignsRoot, "boundary")));
   assert.ok(await fs.stat(path.join(campaignsRoot, "fresh")));
 });
+
+test("legacy campaigns without wallet file get a wallet on first access", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const created = await store.createCampaign(alice, { title: "Legacy wallet campaign" });
+  const walletFile = path.join(process.env.DND_GM_DATA_ROOT, "campaigns", created.campaignId, "credits", "wallet.json");
+  await fs.rm(walletFile, { force: true });
+
+  const wallet = await store.getCampaignWallet(created.campaignId);
+  const saved = JSON.parse(await fs.readFile(walletFile, "utf8"));
+
+  assert.equal(wallet.campaignId, created.campaignId);
+  assert.equal(wallet.balanceCredits, 100);
+  assert.equal(saved.balanceCredits, 100);
+  assert.equal(saved.pricingPolicyId, "pricing-openai-standard-v1");
+});

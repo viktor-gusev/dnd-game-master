@@ -43,6 +43,9 @@ function makeDataStore() {
     async listEvents() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async listCredits() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async listMaterials() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
+    async createAIPrepSession() { return { id: "session_1", policyProfile: "player-character-section-discussion" }; },
+    async listAIPrepSessions() { return [{ id: "session_1" }]; },
+    async postAIPrepMessage() { return { message: { id: "msg_1" }, run: { id: "run_1" }, responseMessage: { id: "msg_2" } }; },
     async createMaterial() { return { materialId: "mat_1" }; },
     async listCharacterSheetsView() { return [{ sheetId: "sheet_1", title: "Character", state: "draft" }]; },
     async getCharacterSheetView() { return { sheetId: "sheet_1", state: "draft", structuredProfile: { identity: { name: "A" }, appearance: {}, personality: {}, backstory: {}, campaignIntegration: {}, mechanics: {}, publicNotes: "" } }; },
@@ -155,6 +158,18 @@ test("POST /api/campaigns/:campaignId/ai/drafts/regenerate returns another revie
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
   assert.match(context.response.body, /"sourceDraftId":"draft_1"/);
+});
+
+test("POST /api/campaigns/:campaignId/ai/sessions creates a session and message run", async () => {
+  const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
+  const context = makeContext();
+  context.request.method = "POST";
+  context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions";
+  context.request.headers["x-local-identity-id"] = "gm-1";
+  context.request = Object.assign(context.request, { async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ title: "AI", targetKind: "character-profile-section", targetId: "sheet_1", sectionKey: "identity.name", mode: "text-draft-generation", policyProfile: "player-character-section-discussion" })); } });
+  await handler.handle(context);
+  assert.equal(context.response.statusCode, 200);
+  assert.match(context.response.body, /"session"/);
 });
 
 test("GET /api/event-delivery opens SSE with browser-compatible query parameters", async () => {

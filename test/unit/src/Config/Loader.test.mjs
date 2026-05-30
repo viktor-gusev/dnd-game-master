@@ -61,6 +61,42 @@ test("parses .env values and validates PORT", async () => {
   assert.deepEqual(runtime, { frozen: true });
 });
 
+test("loads runtime env keys including data root and AI provider settings", async () => {
+  const runtimeFactory = makeRuntimeFactory();
+  const loader = new ConfigLoader({ fs, path, appCfgRuntimeFactory: runtimeFactory });
+  const root = await writeEnvFile([
+    "PORT=8082",
+    "DND_GM_DATA_ROOT=/tmp/dnd-gm-data",
+    "AI_PROVIDER=openai",
+    "OPENAI_API_KEY=sk-test",
+    "OPENAI_DEFAULT_MODEL=gpt-4.1-mini",
+    "OPENAI_IMAGE_MODEL=gpt-image-1",
+    "AI_PROVIDER_TIMEOUT_MS=60000",
+    "AI_MAX_INPUT_TOKENS=12000",
+    "AI_MAX_OUTPUT_TOKENS=2048",
+    "AI_CREDIT_PREAUTH_MULTIPLIER=2",
+    "AI_DEFAULT_PRICING_POLICY_ID=pricing-openai-standard-v1",
+    "AI_CAMPAIGN_INITIAL_CREDITS=100",
+  ].join("\n"));
+
+  await loader.load({ projectRoot: root });
+
+  assert.deepEqual(runtimeFactory.calls[0][1], {
+    httpPort: 8082,
+    dataRoot: "/tmp/dnd-gm-data",
+    aiProvider: "openai",
+    openaiApiKey: "sk-test",
+    openaiDefaultModel: "gpt-4.1-mini",
+    openaiImageModel: "gpt-image-1",
+    aiProviderTimeoutMs: 60000,
+    aiMaxInputTokens: 12000,
+    aiMaxOutputTokens: 2048,
+    aiCreditPreauthMultiplier: 2,
+    aiDefaultPricingPolicyId: "pricing-openai-standard-v1",
+    aiCampaignInitialCredits: 100,
+  });
+});
+
 test("rejects invalid PORT values", async () => {
   const runtimeFactory = makeRuntimeFactory();
   const loader = new ConfigLoader({ fs, path, appCfgRuntimeFactory: runtimeFactory });

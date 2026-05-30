@@ -136,18 +136,31 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
       ask.textContent = "Ask AI";
       ask.addEventListener("click", async () => {
         const candidateText = text(valueFor(state.draftProfile || state.sheet?.structuredProfile || {}, group.fields[0][0]));
-        const response = await shell.api(`/api/campaigns/${state.campaignId}/ai/drafts`, {
+        const sessionResponse = await shell.api(`/api/campaigns/${state.campaignId}/ai/sessions`, {
           method: "POST",
-          operation: "create-player-ai-draft",
+          operation: "create-player-ai-session",
           body: JSON.stringify({
-            title: `${group.title} suggestion`,
-            targetSheetId: sheetId,
-            sectionPath: group.fields[0][0],
-            candidateText,
+            title: `${group.title} AI session`,
+            targetKind: "character-profile-section",
+            targetId: sheetId,
+            sectionKey: group.fields[0][0],
+            mode: "text-draft-generation",
+            policyProfile: "player-character-section-discussion",
           }),
         });
-        if (!response.ok) return shell.pageError(response.error?.message || "Failed to create AI suggestion.");
-        onRefresh({ aiDraft: response.data.aiDraft, statusMessage: "AI suggestion created." });
+        if (!sessionResponse.ok) return shell.pageError(sessionResponse.error?.message || "Failed to create AI session.");
+        const messageResponse = await shell.api(`/api/campaigns/${state.campaignId}/ai/sessions/${sessionResponse.data.session.id}/messages`, {
+          method: "POST",
+          operation: "run-player-ai-session",
+          body: JSON.stringify({
+            clientRequestId: crypto.randomUUID(),
+            contentType: "text",
+            operation: "text-draft-generation",
+            text: candidateText,
+          }),
+        });
+        if (!messageResponse.ok) return shell.pageError(messageResponse.error?.message || "Failed to run AI session.");
+        onRefresh({ statusMessage: "AI suggestion created." });
       });
       actions.insertBefore(ask, save);
     }

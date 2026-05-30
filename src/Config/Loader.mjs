@@ -38,9 +38,21 @@ export default class Dnd_Gm_Config_Loader {
       return result;
     };
 
-    const buildRuntimeConfig = (env) => ({
-      httpPort: env.PORT !== undefined ? parsePort(env.PORT) : 3000,
-    });
+    const buildRuntimeConfig = (env) => {
+      const cfg = { httpPort: env.PORT !== undefined ? parsePort(env.PORT) : 3000 };
+      if (env.DND_GM_DATA_ROOT !== undefined) cfg.dataRoot = env.DND_GM_DATA_ROOT;
+      if (env.AI_PROVIDER !== undefined) cfg.aiProvider = env.AI_PROVIDER;
+      if (env.OPENAI_API_KEY !== undefined) cfg.openaiApiKey = env.OPENAI_API_KEY;
+      if (env.OPENAI_DEFAULT_MODEL !== undefined) cfg.openaiDefaultModel = env.OPENAI_DEFAULT_MODEL;
+      if (env.OPENAI_IMAGE_MODEL !== undefined) cfg.openaiImageModel = env.OPENAI_IMAGE_MODEL;
+      if (env.AI_PROVIDER_TIMEOUT_MS !== undefined) cfg.aiProviderTimeoutMs = parsePort(env.AI_PROVIDER_TIMEOUT_MS);
+      if (env.AI_MAX_INPUT_TOKENS !== undefined) cfg.aiMaxInputTokens = parsePort(env.AI_MAX_INPUT_TOKENS);
+      if (env.AI_MAX_OUTPUT_TOKENS !== undefined) cfg.aiMaxOutputTokens = parsePort(env.AI_MAX_OUTPUT_TOKENS);
+      if (env.AI_CREDIT_PREAUTH_MULTIPLIER !== undefined) cfg.aiCreditPreauthMultiplier = Number(env.AI_CREDIT_PREAUTH_MULTIPLIER);
+      if (env.AI_DEFAULT_PRICING_POLICY_ID !== undefined) cfg.aiDefaultPricingPolicyId = env.AI_DEFAULT_PRICING_POLICY_ID;
+      if (env.AI_CAMPAIGN_INITIAL_CREDITS !== undefined) cfg.aiCampaignInitialCredits = Number(env.AI_CAMPAIGN_INITIAL_CREDITS);
+      return cfg;
+    };
 
     const readEnvFile = async (projectRoot) => {
       const filePath = path.join(projectRoot, ".env");
