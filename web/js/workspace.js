@@ -137,7 +137,7 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
     actions.appendChild(save);
     actions.appendChild(cancel);
     if (shell.pageContext.kind === "player workspace") {
-      const aiPanel = createAIPrepConversationPanel(shell, {
+      const aiPanel = createAIConversationPanel(shell, {
         campaignId: state.campaignId,
         targetKind: "character-profile-section",
         targetId: sheetId,
@@ -360,4 +360,4 @@ export async function initializeWorkspaceApp(shell, kind) {
   if (status) status.textContent = "Loading workspace.";
   await refresh();
 }
-import { createAIPrepConversationPanel } from "./aiprep-conversation-panel.js";
+import { createAIConversationPanel } from "./aiprep-conversation-panel.js";

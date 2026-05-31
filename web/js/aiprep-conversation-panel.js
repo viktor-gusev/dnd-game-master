@@ -1,158 +1,139 @@
-function el(id, doc = document) {
-  return doc.getElementById(id);
-}
+import "../wc/AIConversationPanel.mjs";
 
 function text(value) {
   return String(value ?? "").trim();
 }
 
-function summarizeMessages(messages) {
-  return Array.isArray(messages) ? messages.map((message) => `${message.role}: ${message.text || ""}`.trim()) : [];
+export function createAIConversationPanel(shell, binding, options = {}) {
+  const doc = shell.document;
+  const cryptoApi = shell.cryptoApi || globalThis.crypto;
+  const existing = doc.querySelector?.("dgm-ai-conversation-panel[data-role='ai-conversation-panel']");
+  if (existing) {
+    existing.binding = { ...existing.binding, ...binding };
+    existing.state = "resolving-session";
+    void syncConversation(existing, shell, options);
+    return existing;
+  }
+  const panel = doc.createElement("dgm-ai-conversation-panel");
+  panel.dataset.role = "ai-conversation-panel";
+  panel.binding = {
+    ...binding,
+    campaignId: text(binding?.campaignId),
+    targetKind: text(binding?.targetKind),
+    targetId: text(binding?.targetId),
+    sectionKey: text(binding?.sectionKey),
+    mode: text(binding?.mode),
+    policyProfile: text(binding?.policyProfile),
+    outputKind: text(binding?.outputKind),
+  };
+  panel.state = "resolving-session";
+  panel.setAttribute("aria-label", options.title || "AI conversation panel");
+  panel._sessionState = { session: null, messages: [] };
+  panel.addEventListener("dgm-ai-conversation-panel-submit", async (event) => {
+    const messageText = text(event.detail?.text);
+    if (!messageText) return;
+    await submitMessage(panel, shell, options, messageText, cryptoApi);
+  });
+  panel.addEventListener("dgm-ai-conversation-panel-close", (event) => {
+    if (typeof options.onClose === "function") options.onClose(event.detail);
+  });
+  if (doc.body?.appendChild) doc.body.appendChild(panel);
+  else doc.documentElement?.appendChild?.(panel);
+  void syncConversation(panel, shell, options);
+  return panel;
 }
 
-export function createAIPrepConversationPanel(shell, binding, options = {}) {
-  const doc = shell.document;
-  const panel = doc.createElement("section");
-  panel.className = "ai-prep-conversation-panel";
-  panel.dataset.targetKind = binding.targetKind;
-  panel.dataset.policyProfile = binding.policyProfile;
-
-  const title = doc.createElement("h3");
-  title.textContent = options.title || "AIPrepConversationPanel";
-  panel.appendChild(title);
-
-  const status = doc.createElement("p");
-  status.className = "ai-prep-conversation-status";
-  status.textContent = "Resolving session.";
-  panel.appendChild(status);
-
-  const transcript = doc.createElement("div");
-  transcript.className = "ai-prep-conversation-transcript";
-  panel.appendChild(transcript);
-
-  const input = doc.createElement("textarea");
-  input.rows = 4;
-  input.placeholder = options.placeholder || "Enter preparation notes or questions.";
-  panel.appendChild(input);
-
-  const actions = doc.createElement("div");
-  actions.className = "ai-prep-conversation-actions";
-  panel.appendChild(actions);
-
-  const launch = doc.createElement("button");
-  launch.type = "button";
-  launch.textContent = "Ask AI";
-  actions.appendChild(launch);
-
-  const sessionState = { session: null, messages: [], ready: false };
-  const cryptoApi = shell.cryptoApi || crypto;
-
-  async function loadSession() {
-    status.textContent = "Resolving session.";
-    const params = new URLSearchParams({
-      targetKind: binding.targetKind,
-      targetId: binding.targetId,
-      sectionKey: binding.sectionKey || "",
-      status: "active",
-    });
-    const response = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions?${params.toString()}`, { operation: "list-ai-sessions" });
-    if (!response.ok) {
-      status.textContent = response.error?.message || "Failed to load AI session.";
-      return null;
-    }
-    const session = Array.isArray(response.data.sessions) ? response.data.sessions[0] || null : null;
-    sessionState.session = session;
-    if (session) {
-      const messagesResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions/${session.id}/messages`, { operation: "load-ai-messages" });
-      sessionState.messages = messagesResponse.ok && Array.isArray(messagesResponse.data.messages) ? messagesResponse.data.messages : [];
-    } else {
-      sessionState.messages = [];
-    }
-    sessionState.ready = true;
-    return session;
+async function syncConversation(panel, shell, options = {}) {
+  const binding = panel.binding;
+  if (!text(binding.campaignId) || !text(binding.targetKind)) {
+    panel.state = "provider-error";
+    panel.transcript = [];
+    return;
   }
 
-  function renderTranscript() {
-    transcript.innerHTML = "";
-    if (!sessionState.messages.length) {
-      const empty = doc.createElement("p");
-      empty.textContent = "No messages yet.";
-      transcript.appendChild(empty);
-      return;
-    }
-    for (const message of sessionState.messages) {
-      const row = doc.createElement("p");
-      row.textContent = summarizeMessages([message])[0];
-      transcript.appendChild(row);
-    }
+  panel.state = "resolving-session";
+  const params = new URLSearchParams({
+    targetKind: binding.targetKind,
+    targetId: binding.targetId,
+    sectionKey: binding.sectionKey || "",
+    status: "active",
+  });
+  const response = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions?${params.toString()}`, { operation: "list-ai-sessions" });
+  if (!response.ok) {
+    panel.state = response.error?.code === "forbidden" ? "session-closed" : "provider-error";
+    panel.transcript = [];
+    return;
   }
 
-  launch.addEventListener("click", async () => {
-    const messageText = text(input.value);
-    if (!messageText) {
-      status.textContent = "Enter a message first.";
-      return;
-    }
-    if (!text(binding.targetId) && typeof options.ensureTargetId === "function") {
-      status.textContent = "Saving target first.";
-      const ensuredTargetId = await options.ensureTargetId();
-      if (!text(ensuredTargetId)) {
-        status.textContent = "Failed to save target before starting AI session.";
-        return;
-      }
-      binding.targetId = ensuredTargetId;
-    }
-    if (!text(binding.targetId)) {
-      status.textContent = "Save the section before starting AI.";
-      return;
-    }
-    if (!sessionState.session) {
-      status.textContent = "Creating session.";
-      const sessionResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions`, {
-        method: "POST",
-        operation: "create-ai-session",
-        body: JSON.stringify({
-          title: options.title || "AI session",
-          targetKind: binding.targetKind,
-          targetId: binding.targetId,
-          sectionKey: binding.sectionKey || "",
-          mode: binding.mode,
-          policyProfile: binding.policyProfile,
-          outputKind: binding.outputKind || "",
-        }),
-      });
-      if (!sessionResponse.ok) {
-        status.textContent = sessionResponse.error?.message || "Failed to create AI session.";
-        return;
-      }
-      sessionState.session = sessionResponse.data.session;
-    }
-    status.textContent = "Submitting message.";
-    const messageResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions/${sessionState.session.id}/messages`, {
+  const session = Array.isArray(response.data.sessions) ? response.data.sessions[0] || null : null;
+  panel._sessionState.session = session;
+  if (!session) {
+    panel.state = "ready-empty";
+    panel.transcript = [];
+    return;
+  }
+
+  panel.state = "loading-history";
+  const messagesResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions/${session.id}/messages`, { operation: "load-ai-messages" });
+  panel._sessionState.messages = messagesResponse.ok && Array.isArray(messagesResponse.data.messages) ? messagesResponse.data.messages : [];
+  panel.transcript = panel._sessionState.messages;
+  panel.state = panel._sessionState.messages.length ? "ready-with-thread" : "ready-empty";
+}
+
+async function submitMessage(panel, shell, options, textValue, cryptoApi) {
+  const binding = panel.binding;
+  const state = panel._sessionState || { session: null, messages: [] };
+
+  if (!text(binding.campaignId) || !text(binding.targetKind)) {
+    panel.state = "provider-error";
+    return;
+  }
+
+  if (!state.session) {
+    panel.state = "creating-session";
+    const sessionResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions`, {
       method: "POST",
-      operation: "run-ai-session",
+      operation: "create-ai-session",
       body: JSON.stringify({
-        clientRequestId: cryptoApi.randomUUID(),
-        contentType: "text",
-        operation: binding.mode,
-        text: messageText,
+        title: options.title || "AI session",
+        targetKind: binding.targetKind,
+        targetId: binding.targetId,
+        sectionKey: binding.sectionKey || "",
+        mode: binding.mode,
+        policyProfile: binding.policyProfile,
+        outputKind: binding.outputKind || "",
       }),
     });
-    if (!messageResponse.ok) {
-      status.textContent = messageResponse.error?.message || "Failed to submit AI message.";
+    if (!sessionResponse.ok) {
+      panel.state = sessionResponse.error?.code === "forbidden" ? "session-closed" : "provider-error";
       return;
     }
-    sessionState.messages.push(messageResponse.data.message);
-    if (messageResponse.data.responseMessage) sessionState.messages.push(messageResponse.data.responseMessage);
-    input.value = "";
-    status.textContent = "Candidate output ready.";
-    renderTranscript();
-  });
+    state.session = sessionResponse.data.session;
+    panel._sessionState = state;
+  }
 
-  loadSession().then(() => {
-    status.textContent = sessionState.session ? "Ready with thread." : "Ready empty.";
-    renderTranscript();
+  panel.state = "submitting-message";
+  const messageResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions/${state.session.id}/messages`, {
+    method: "POST",
+    operation: "run-ai-session",
+    body: JSON.stringify({
+      clientRequestId: cryptoApi?.randomUUID?.() || `${Date.now()}`,
+      contentType: "text",
+      operation: binding.mode,
+      text: textValue,
+    }),
   });
+  if (!messageResponse.ok) {
+    panel.state = messageResponse.error?.code === "forbidden" ? "session-closed" : "provider-error";
+    return;
+  }
 
-  return panel;
+  state.messages.push(messageResponse.data.message);
+  if (messageResponse.data.responseMessage) state.messages.push(messageResponse.data.responseMessage);
+  panel._sessionState = state;
+  panel.transcript = state.messages;
+  panel.state = messageResponse.data.responseMessage ? "candidate-ready" : "ready-with-thread";
+  if (messageResponse.data.responseMessage) {
+    panel.candidate = messageResponse.data.responseMessage;
+  }
 }
