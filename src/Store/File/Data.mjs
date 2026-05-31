@@ -134,6 +134,146 @@ function setSectionValue(profile, sectionPath, value) {
   cursor[parts.at(-1)] = value;
 }
 
+function sectionValueForPath(profile, sectionPath) {
+  return clone(getSectionValue(profile, sectionPath));
+}
+
+function sectionValueForSectionKey(profile, sectionKey) {
+  if (!sectionKey) return null;
+  if (Object.prototype.hasOwnProperty.call(profile, sectionKey)) return sectionValueForPath(profile, sectionKey);
+  if (sectionKey === "identity") return sectionValueForPath(profile, "identity");
+  if (sectionKey === "appearance") return sectionValueForPath(profile, "appearance");
+  if (sectionKey === "personality") return sectionValueForPath(profile, "personality");
+  if (sectionKey === "backstory") return sectionValueForPath(profile, "backstory");
+  if (sectionKey === "campaignIntegration") return sectionValueForPath(profile, "campaignIntegration");
+  if (sectionKey === "mechanics") return sectionValueForPath(profile, "mechanics");
+  if (sectionKey === "publicNotes") return sectionValueForPath(profile, "publicNotes");
+  if (sectionKey === "gmHooks") return sectionValueForPath(profile, "gmHooks");
+  if (sectionKey === "playerIntent") return sectionValueForPath(profile, "playerIntent");
+  return null;
+}
+
+function isTrivialAssistantText(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) return true;
+  return [
+    /^hello[!.?\s]*how can i help/,
+    /^hi[!.?\s]*how can i help/,
+    /^hey[!.?\s]*how can i help/,
+    /^hello[!.?\s]*$/,
+    /^hi[!.?\s]*$/,
+    /^hey[!.?\s]*$/,
+    /^привет[!.?\s]*$/,
+    /^привет[!.?\s]*чем помочь/,
+    /^чем помочь[!?.\s]*$/,
+    /^how can i help/,
+    /^what can i help/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function summarizeDialogContext(messages = []) {
+  const entries = Array.isArray(messages) ? messages : [];
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const message = entries[i] || {};
+    if (message.role !== "assistant") continue;
+    const summary = normalizeText(message.text || message.content || "");
+    if (!summary || isTrivialAssistantText(summary)) continue;
+    return summary;
+  }
+  return "";
+}
+
+function parseJsonCandidate(text) {
+  const raw = normalizeText(text);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {}
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return null;
+  }
+}
+
+function structuredSnapshotSchema(snapshot) {
+  if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)) {
+    const keys = Object.keys(snapshot);
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: Object.fromEntries(keys.map((key) => [key, { type: "string" }])),
+      required: keys,
+    };
+  }
+  return { type: "string" };
+}
+
+function normalizeStructuredCandidate(baseline, candidate) {
+  if (baseline && typeof baseline === "object" && !Array.isArray(baseline)) {
+    const source = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : {};
+    const next = {};
+    for (const [key, value] of Object.entries(baseline)) {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        next[key] = normalizeStructuredCandidate(value, source[key]);
+        continue;
+      }
+      if (typeof value === "string") {
+        next[key] = typeof source[key] === "string" ? source[key].trim() : value;
+        continue;
+      }
+      next[key] = clone(value);
+    }
+    return next;
+  }
+  if (typeof baseline === "string") {
+    return typeof candidate === "string" ? candidate.trim() : baseline;
+  }
+  return candidate ?? baseline;
+}
+
+function formatDialogContext(messages = []) {
+  const entries = Array.isArray(messages) ? messages : [];
+  return entries.map((message) => {
+    const role = String(message?.role || "message").toUpperCase();
+    const content = normalizeText(message?.text || message?.content || "");
+    return content ? `${role}: ${content}` : "";
+  }).filter(Boolean).join("\n");
+}
+
+function buildStructuredDraftPrompt(sectionKey, sectionSnapshot, dialogContext) {
+  const snapshotText = JSON.stringify(sectionSnapshot, null, 2);
+  const schema = JSON.stringify(structuredSnapshotSchema(sectionSnapshot), null, 2);
+  return [
+    {
+      role: "system",
+      contentType: "text",
+      text: `You materialize a structured candidate for the ${sectionKey || "selected"} section.\nReturn only valid JSON. Do not include markdown, code fences, or commentary.\nThe JSON must match the provided schema exactly.\nIf the conversation produced no new proposal, return the baseline unchanged.`,
+      assetRefs: [],
+      draftRefs: [],
+      providerResponseId: null,
+    },
+    {
+      role: "system",
+      contentType: "text",
+      text: `Schema:\n${schema}\n\nBaseline section snapshot:\n${snapshotText}`,
+      assetRefs: [],
+      draftRefs: [],
+      providerResponseId: null,
+    },
+    {
+      role: "user",
+      contentType: "text",
+      text: `Dialog context:\n${formatDialogContext(dialogContext)}\n\nReturn the structured candidate JSON only.`,
+      assetRefs: [],
+      draftRefs: [],
+      providerResponseId: null,
+    },
+  ];
+}
+
 function assetVisibilityForOwner(asset, isOwnerOrGM) {
   if (isOwnerOrGM) return asset;
   return null;
@@ -361,9 +501,36 @@ export default class Dnd_Gm_Store_File_Data {
 
     this.listVisibleAIPrepMessages = (messages, sessionId, threadId = "") => (Array.isArray(messages) ? messages : []).filter((message) => message.sessionId === sessionId && (!threadId || message.threadId === threadId) && isUserVisibleAiMessage(message));
 
+    this.getAIPrepSectionSnapshot = (current, session) => {
+      if (!current || !session || session.targetKind !== "character-profile-section") return null;
+      if (session.sectionSnapshot && typeof session.sectionSnapshot === "object") return clone(session.sectionSnapshot);
+      const sheet = (current.characterSheets || []).find((item) => item.sheetId === session.targetId) || null;
+      if (!sheet) return null;
+      const normalizedProfile = normalizeStructuredProfile(sheet.structuredProfile);
+      if (session.sectionKey && Object.prototype.hasOwnProperty.call(normalizedProfile, session.sectionKey)) {
+        return clone(normalizedProfile[session.sectionKey]);
+      }
+      if (session.sectionKey && session.sectionKey.includes(".")) {
+        return clone(getSectionValue(normalizedProfile, session.sectionKey));
+      }
+      return clone(normalizedProfile);
+    };
+
     this.buildAIPrepProviderMessages = (current, session, thread, userMessage) => {
       const transcript = this.listVisibleAIPrepMessages(current.aiMessages, session.id, thread.id);
-      return [...transcript, userMessage];
+      const sectionSnapshot = this.getAIPrepSectionSnapshot(current, session);
+      const messages = [];
+      if (sectionSnapshot !== null && sectionSnapshot !== undefined) {
+        messages.push({
+          role: "system",
+          contentType: "text",
+          text: `Current section snapshot:\n${JSON.stringify(sectionSnapshot, null, 2)}`,
+          assetRefs: [],
+          draftRefs: [],
+          providerResponseId: null,
+        });
+      }
+      return [...messages, ...transcript, userMessage];
     };
 
     this.decorateCampaign = (current, identityId = "") => ({
@@ -657,6 +824,116 @@ export default class Dnd_Gm_Store_File_Data {
       return { aiDraft: draft };
     };
 
+    this.createAIPrepSessionDraft = async (campaignId, sessionId, body, identity) => {
+      const current = await this.readCampaign(campaignId);
+      if (!current) return null;
+      const session = (current.aiSessions || []).find((item) => item.id === sessionId);
+      if (!session) return null;
+      if (session.ownerIdentityId !== identity.id && current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Forbidden."), { code: "forbidden" });
+      const clientRequestId = String(body.clientRequestId || "").trim();
+      if (!clientRequestId) throw Object.assign(new Error("clientRequestId is required."), { code: "invalid_input" });
+      const endpointKey = "POST ai.sessions.drafts";
+      const sectionKey = String(body.sectionKey || session.sectionKey || "").trim();
+      const sectionPath = String(body.sectionPath || session.sectionKey || "").trim();
+      const dialogContext = Array.isArray(body.dialogContext)
+        ? body.dialogContext
+        : this.listVisibleAIPrepMessages(current.aiMessages, sessionId, session.activeThreadId || "");
+      const dialogSummary = summarizeDialogContext(dialogContext);
+      const effectiveInput = stableStringify({
+        campaignId,
+        identityId: identity.id,
+        endpointKey,
+        sessionId,
+        operation: body.operation || "draft-generation",
+        sectionKey,
+        sectionPath,
+        sectionData: body.sectionData && typeof body.sectionData === "object" ? body.sectionData : null,
+        sectionSnapshot: body.sectionSnapshot && typeof body.sectionSnapshot === "object"
+          ? body.sectionSnapshot
+          : session.sectionSnapshot && typeof session.sectionSnapshot === "object"
+            ? session.sectionSnapshot
+            : null,
+        structuredInput: body.structuredInput && typeof body.structuredInput === "object" ? body.structuredInput : null,
+        dialogSummary,
+        targetKind: session.targetKind,
+        targetId: session.targetId,
+        policyProfile: session.policyProfile,
+      });
+      const requestHash = await sha256(effectiveInput);
+      const idempotency = await this.loadIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId);
+      if (idempotency) {
+        if (idempotency.requestHash !== requestHash) throw Object.assign(new Error("Idempotency conflict."), { code: "ai.idempotency_conflict" });
+        if (idempotency.status === "completed" && idempotency.responseRef) {
+          return { aiDraft: current.aiDrafts.find((item) => item.draftId === idempotency.responseRef.draftId) || null };
+        }
+      }
+      await this.saveIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId, { clientRequestId, campaignId, identityId: identity.id, endpointKey, sessionId, requestHash, status: "started", createdAt: this.timestamp() });
+      const targetSheet = current.characterSheets.find((item) => item.sheetId === session.targetId) || null;
+      const currentSectionShape = targetSheet?.structuredProfile && sectionKey
+        ? sectionValueForSectionKey(normalizeStructuredProfile(targetSheet.structuredProfile), sectionKey)
+        : null;
+      const baselineSectionData = currentSectionShape && typeof currentSectionShape === "object"
+        ? normalizeStructuredCandidate(currentSectionShape, body.sectionSnapshot && typeof body.sectionSnapshot === "object" ? body.sectionSnapshot : body.sectionData && typeof body.sectionData === "object" ? body.sectionData : session.sectionSnapshot && typeof session.sectionSnapshot === "object" ? session.sectionSnapshot : currentSectionShape)
+        : body.sectionSnapshot && typeof body.sectionSnapshot === "object"
+          ? clone(body.sectionSnapshot)
+          : body.sectionData && typeof body.sectionData === "object"
+            ? clone(body.sectionData)
+            : session.sectionSnapshot && typeof session.sectionSnapshot === "object"
+              ? clone(session.sectionSnapshot)
+              : null;
+      if (baselineSectionData && !session.sectionSnapshot) session.sectionSnapshot = clone(baselineSectionData);
+      const structuredMessages = buildStructuredDraftPrompt(sectionKey, baselineSectionData ?? {}, dialogContext);
+      const schema = structuredSnapshotSchema(baselineSectionData ?? {});
+      const providerResult = await this.callAiProvider({
+        session: { ...session, mode: "text-draft-generation" },
+        thread: { id: session.activeThreadId || "", providerConversationId: null, lastResponseId: null },
+        messages: structuredMessages,
+        operation: "draft-generation",
+        textFormat: { type: "json_schema", name: `section_${sectionKey || "candidate"}_candidate`, strict: true, schema },
+      });
+      const parsedCandidate = parseJsonCandidate(providerResult.outputText);
+      const normalizedSectionData = baselineSectionData && parsedCandidate
+        ? normalizeStructuredCandidate(baselineSectionData, parsedCandidate)
+        : baselineSectionData && parsedCandidate === null
+          ? clone(baselineSectionData)
+          : parsedCandidate;
+      const sectionData = normalizedSectionData && baselineSectionData && typeof baselineSectionData === "object" && typeof normalizedSectionData === "object"
+        ? normalizeStructuredCandidate(baselineSectionData, normalizedSectionData)
+        : normalizedSectionData;
+      const noChanges = stableStringify(sectionData) === stableStringify(baselineSectionData);
+      const draft = {
+        draftId: `draft_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
+        title: String(body.title || session.title || "AI Draft").trim() || "AI Draft",
+        content: providerResult.outputText || "",
+        state: "draft",
+        createdAt: this.timestamp(),
+        updatedAt: this.timestamp(),
+        sourceDraftId: "",
+        ownerIdentityId: identity.id,
+        ownerRole: current.campaign.gm.uuid === identity.id ? "game_master" : "player",
+        targetSheetId: session.targetKind === "character-profile-section" ? session.targetId : "",
+        sectionPath,
+        candidateText: "",
+        candidateData: {
+          targetKind: session.targetKind,
+          targetId: session.targetId,
+          sectionKey,
+          sectionPath,
+          sectionData,
+          structuredInput: body.structuredInput && typeof body.structuredInput === "object" ? clone(body.structuredInput) : {},
+          assistantSummary: providerResult.outputText || "",
+          providerOutputText: providerResult.outputText || "",
+          dialogContext: Array.isArray(dialogContext) ? clone(dialogContext) : [],
+          noChanges,
+        },
+      };
+      current.aiDrafts.push(draft);
+      await writeJson(this.aiDraftsJson(campaignId), { aiDrafts: current.aiDrafts });
+      await this.saveIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId, { clientRequestId, campaignId, identityId: identity.id, endpointKey, sessionId, requestHash, status: "completed", responseRef: { draftId: draft.draftId }, createdAt: this.timestamp() });
+      await this.touchCampaign(campaignId, identity.id, "ai.draft.created", { draftId: draft.draftId, sessionId });
+      return { aiDraft: draft };
+    };
+
     this.getAIDraft = async (campaignId, draftId) => {
       const current = await this.readCampaign(campaignId);
       return current?.aiDrafts.find((item) => item.draftId === draftId) || null;
@@ -721,7 +998,11 @@ export default class Dnd_Gm_Store_File_Data {
       const sheet = current.characterSheets.find((item) => item.sheetId === draft.targetSheetId);
       if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
       if (sheet.playerIdentityId !== identity.id && !isGM) throw Object.assign(new Error("Only the authorized owner may accept this AI draft."), { code: "forbidden" });
-      if (draft.sectionPath) {
+      if (draft.candidateData && draft.candidateData.sectionData && draft.candidateData.sectionKey) {
+        const normalized = normalizeStructuredProfile(sheet.structuredProfile);
+        setSectionValue(normalized, draft.candidateData.sectionKey, draft.candidateData.sectionData);
+        sheet.structuredProfile = normalized;
+      } else if (draft.sectionPath) {
         const normalized = normalizeStructuredProfile(sheet.structuredProfile);
         setSectionValue(normalized, draft.sectionPath, draft.candidateText || draft.content || "");
         sheet.structuredProfile = normalized;
@@ -856,9 +1137,37 @@ export default class Dnd_Gm_Store_File_Data {
       return log;
     };
 
-    this.callAiProvider = async ({ session, thread, messages, operation }) => {
+    this.callAiProvider = async ({ session, thread, messages, operation, textFormat = null }) => {
       const cfg = this.getAiRuntimeConfig();
       if (cfg.provider !== "openai") {
+        if (operation === "draft-generation") {
+          const baselineMessage = (Array.isArray(messages) ? messages : []).find((message) => message.role === "system" && normalizeText(message.text || "").includes("Baseline section snapshot:"));
+          const marker = "Baseline section snapshot:";
+          const baselineMessageText = normalizeText(baselineMessage?.text || "");
+          const markerIndex = baselineMessageText.indexOf(marker);
+          const baselineText = markerIndex >= 0 ? baselineMessageText.slice(markerIndex + marker.length).trim() : "";
+          let structuredText = baselineText;
+          try {
+            const parsed = JSON.parse(baselineText);
+            structuredText = JSON.stringify(parsed);
+          } catch {}
+          const providerResponseId = `resp_${Date.now().toString(16)}`;
+          return {
+            provider: "fake",
+            model: "fake",
+            providerResponseId,
+            providerConversationId: thread.providerConversationId || "",
+            outputText: structuredText,
+            usage: this.normalizeUsage({
+              inputTokens: 1,
+              outputTokens: 1,
+              usageItems: [{ kind: "text-output-token", unit: "token", quantity: 1, providerUnitPriceUsd: 0, providerCostUsd: 0 }],
+            }, operation, "fake", "fake"),
+            status: "completed",
+            assistantMessages: structuredText ? [{ role: "assistant", contentType: "text", text: structuredText, providerResponseId }] : [],
+            receivedMessages: messages,
+          };
+        }
         return {
           provider: "fake",
           model: "fake",
@@ -880,11 +1189,12 @@ export default class Dnd_Gm_Store_File_Data {
         model: session.mode && session.mode.startsWith("image") ? cfg.openaiImageModel : cfg.openaiDefaultModel,
         instructions: `You are assisting in campaign preparation. Policy profile: ${session.policyProfile}. Target kind: ${session.targetKind}.`,
         input: messages.map((message) => ({
-          role: message.role === "assistant" ? "assistant" : "user",
+          role: message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user",
           content: message.text || "",
         })),
         max_output_tokens: cfg.maxOutputTokens,
       };
+      if (textFormat) body.text = { format: textFormat };
       if (thread.lastResponseId) body.previous_response_id = thread.lastResponseId;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(new Error("OpenAI request timed out.")), cfg.timeoutMs);
@@ -956,6 +1266,7 @@ export default class Dnd_Gm_Store_File_Data {
         title: String(body.title || "").trim() || "AI session",
         summary: null,
         activeThreadId: null,
+        sectionSnapshot: body.sectionSnapshot && typeof body.sectionSnapshot === "object" ? clone(body.sectionSnapshot) : null,
         createdAt: this.timestamp(),
         updatedAt: this.timestamp(),
         closedAt: null,
@@ -1003,6 +1314,12 @@ export default class Dnd_Gm_Store_File_Data {
       if (!clientRequestId) throw Object.assign(new Error("clientRequestId is required."), { code: "invalid_input" });
       const endpointKey = "POST ai.sessions.messages";
       const normalizedText = normalizeText(body.text);
+      const sectionSnapshot = body.sectionSnapshot && typeof body.sectionSnapshot === "object"
+        ? clone(body.sectionSnapshot)
+        : session.sectionSnapshot && typeof session.sectionSnapshot === "object"
+          ? clone(session.sectionSnapshot)
+          : this.getAIPrepSectionSnapshot(current, session);
+      if (sectionSnapshot && typeof sectionSnapshot === "object") session.sectionSnapshot = clone(sectionSnapshot);
       const effectiveInput = stableStringify({
         campaignId,
         identityId: identity.id,
@@ -1017,6 +1334,7 @@ export default class Dnd_Gm_Store_File_Data {
         targetKind: session.targetKind,
         targetId: session.targetId,
         sectionKey: session.sectionKey,
+        sectionSnapshot,
       });
       const requestHash = await sha256(effectiveInput);
       const idempotency = await this.loadIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId);

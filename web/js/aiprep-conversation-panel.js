@@ -4,12 +4,19 @@ function text(value) {
   return String(value ?? "").trim();
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 export function createAIConversationPanel(shell, binding, options = {}) {
   const doc = shell.document;
   const cryptoApi = shell.cryptoApi || globalThis.crypto;
   const existing = doc.querySelector?.("dgm-ai-conversation-panel[data-role='ai-conversation-panel']");
   if (existing) {
     existing.binding = { ...existing.binding, ...binding };
+    existing._sessionState = { session: null, messages: [] };
+    existing.candidate = null;
+    existing.candidateReviewText = "";
     existing.state = "resolving-session";
     void syncConversation(existing, shell, options);
     return existing;
@@ -25,10 +32,12 @@ export function createAIConversationPanel(shell, binding, options = {}) {
     mode: text(binding?.mode),
     policyProfile: text(binding?.policyProfile),
     outputKind: text(binding?.outputKind),
+    sectionSnapshot: binding?.sectionSnapshot && typeof binding.sectionSnapshot === "object" ? clone(binding.sectionSnapshot) : null,
   };
   panel.state = "resolving-session";
   panel.setAttribute("aria-label", options.title || "AI conversation panel");
   panel._sessionState = { session: null, messages: [] };
+  panel.ensureSession = async () => ensureSession(panel, shell, options, cryptoApi);
   panel.addEventListener("dgm-ai-conversation-panel-submit", async (event) => {
     const messageText = text(event.detail?.text);
     if (!messageText) return;
@@ -41,6 +50,41 @@ export function createAIConversationPanel(shell, binding, options = {}) {
   else doc.documentElement?.appendChild?.(panel);
   void syncConversation(panel, shell, options);
   return panel;
+}
+
+async function ensureSession(panel, shell, options = {}, cryptoApi) {
+  const binding = panel.binding;
+  const state = panel._sessionState || { session: null, messages: [] };
+  if (state.session) return state.session;
+  if (state.creatingSessionPromise) return state.creatingSessionPromise;
+
+  state.creatingSessionPromise = (async () => {
+    const sessionResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions`, {
+      method: "POST",
+      operation: "create-ai-session",
+      body: JSON.stringify({
+        title: options.title || "AI session",
+        targetKind: binding.targetKind,
+        targetId: binding.targetId,
+        sectionKey: binding.sectionKey || "",
+        sectionSnapshot: binding.sectionSnapshot && typeof binding.sectionSnapshot === "object" ? clone(binding.sectionSnapshot) : null,
+        mode: binding.mode,
+        policyProfile: binding.policyProfile,
+        outputKind: binding.outputKind || "",
+      }),
+    });
+    if (!sessionResponse.ok) {
+      state.creatingSessionPromise = null;
+      panel.state = sessionResponse.error?.code === "forbidden" ? "session-closed" : "provider-error";
+      return null;
+    }
+    state.session = sessionResponse.data.session;
+    state.creatingSessionPromise = null;
+    panel._sessionState = state;
+    return state.session;
+  })();
+
+  return state.creatingSessionPromise;
 }
 
 async function syncConversation(panel, shell, options = {}) {
@@ -68,8 +112,11 @@ async function syncConversation(panel, shell, options = {}) {
   const session = Array.isArray(response.data.sessions) ? response.data.sessions[0] || null : null;
   panel._sessionState.session = session;
   if (!session) {
-    panel.state = "ready-empty";
+    panel.state = "creating-session";
+    const createdSession = await ensureSession(panel, shell, options, shell.cryptoApi || globalThis.crypto);
+    if (!createdSession) return;
     panel.transcript = [];
+    panel.state = "ready-empty";
     return;
   }
 
@@ -91,24 +138,9 @@ async function submitMessage(panel, shell, options, textValue, cryptoApi) {
 
   if (!state.session) {
     panel.state = "creating-session";
-    const sessionResponse = await shell.api(`/api/campaigns/${binding.campaignId}/ai/sessions`, {
-      method: "POST",
-      operation: "create-ai-session",
-      body: JSON.stringify({
-        title: options.title || "AI session",
-        targetKind: binding.targetKind,
-        targetId: binding.targetId,
-        sectionKey: binding.sectionKey || "",
-        mode: binding.mode,
-        policyProfile: binding.policyProfile,
-        outputKind: binding.outputKind || "",
-      }),
-    });
-    if (!sessionResponse.ok) {
-      panel.state = sessionResponse.error?.code === "forbidden" ? "session-closed" : "provider-error";
-      return;
-    }
-    state.session = sessionResponse.data.session;
+    const createdSession = await ensureSession(panel, shell, options, cryptoApi);
+    if (!createdSession) return;
+    state.session = createdSession;
     panel._sessionState = state;
   }
 
@@ -120,6 +152,7 @@ async function submitMessage(panel, shell, options, textValue, cryptoApi) {
       clientRequestId: cryptoApi?.randomUUID?.() || `${Date.now()}`,
       contentType: "text",
       operation: binding.mode,
+      sectionSnapshot: binding.sectionSnapshot && typeof binding.sectionSnapshot === "object" ? clone(binding.sectionSnapshot) : null,
       text: textValue,
     }),
   });

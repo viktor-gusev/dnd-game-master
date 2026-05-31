@@ -343,6 +343,15 @@ export default class Dnd_Gm_Web_Handler_Api {
       json(res, 200, success({ aiDraft: result.aiDraft || result }));
     };
 
+    this.postAIPrepSessionDraft = async (campaignId, sessionId, req, res, context) => {
+      const identity = await this.resolveIdentityFromHeader(req);
+      const body = await readBody(req);
+      const result = await this.dataStore.createAIPrepSessionDraft(campaignId, sessionId, body, identity);
+      if (!result) throw Object.assign(new Error("Unknown AI session id."), { code: "unknown_ai_session" });
+      complete(context);
+      json(res, 200, success({ aiDraft: result.aiDraft || result }));
+    };
+
     this.getAIDraft = async (campaignId, draftId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
       const draft = await this.dataStore.getAIDraft(campaignId, draftId, identity.id);
@@ -480,7 +489,7 @@ export default class Dnd_Gm_Web_Handler_Api {
           if (tail === "character-sheets" && method === "GET") return await this.listCharacterSheets(campaignId, req, res, context);
           if (tail === "character-sheets" && method === "POST") return await this.postCharacterSheet(campaignId, req, res, context);
 
-          const subMatch = tail.match(/^(character-sheets|ai\/drafts|ai\/sessions)\/([^/]+)(?:\/(assets)\/([^/]+)|\/(approve|return-to-draft|regenerate|accept|reject|messages))?$/);
+          const subMatch = tail.match(/^(character-sheets|ai\/drafts|ai\/sessions)\/([^/]+)(?:\/(assets)\/([^/]+)|\/(approve|return-to-draft|regenerate|accept|reject|messages|drafts))?$/);
           if (subMatch) {
             const collection = subMatch[1];
             const itemId = subMatch[2];
@@ -497,6 +506,7 @@ export default class Dnd_Gm_Web_Handler_Api {
             if (collection === "ai/sessions" && !action && method === "POST") return await this.postAIPrepMessage(campaignId, itemId, req, res, context);
             if (collection === "ai/sessions" && !action && method === "GET") return await this.getAIPrepSession(campaignId, itemId, req, res, context);
             if (collection === "ai/sessions" && action === "messages" && method === "GET") return await this.listAIPrepMessages(campaignId, itemId, req, res, context);
+            if (collection === "ai/sessions" && action === "drafts" && method === "POST") return await this.postAIPrepSessionDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && !action && method === "GET") return await this.getAIDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && !action && method === "PATCH") return await this.patchAIDraft(campaignId, itemId, req, res, context);
             if (collection === "ai/drafts" && action === "regenerate" && method === "POST") return await this.regenerateAIDraft(campaignId, itemId, req, res, context);

@@ -162,6 +162,139 @@ test("player-owned AI draft acceptance updates only the selected section", async
   assert.equal(projected.structuredProfile.appearance.text, "Short cloak");
 });
 
+test("structured AI session draft acceptance preserves the baseline when the dialog adds no proposal", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Structured AI profile" });
+  await store.joinCampaign(created.campaignId, bob);
+  const sheet = await store.createCharacterSheet(created.campaignId, {
+    structuredProfile: {
+      identity: { name: "Asha", shortDescription: "Original summary" },
+      appearance: { text: "Short cloak" },
+      personality: { traits: "Calm" },
+      backstory: { text: "A wanderer" },
+      campaignIntegration: { reasonToJoin: "Seek allies" },
+      mechanics: { text: "Free-form" },
+      publicNotes: "Visible note",
+      gmHooks: "Hidden hook",
+      playerIntent: { playStyle: "Support" },
+    },
+  }, bob);
+  const session = await store.createAIPrepSession(created.campaignId, {
+    title: "Identity AI",
+    targetKind: "character-profile-section",
+    targetId: sheet.sheetId,
+    sectionKey: "identity",
+    mode: "text-draft-generation",
+    policyProfile: "player-character-section-discussion",
+    outputKind: "draft",
+  }, bob);
+  store.callAiProvider = async () => ({
+    provider: "openai",
+    model: "gpt-4.1-mini",
+    providerResponseId: "resp_baseline",
+    providerConversationId: "",
+    outputText: JSON.stringify({ name: "Asha", shortDescription: "Original summary" }),
+    usage: store.normalizeUsage({
+      inputTokens: 1,
+      outputTokens: 1,
+      usageItems: [{ kind: "text-output-token", unit: "token", quantity: 1, providerUnitPriceUsd: 0, providerCostUsd: 0 }],
+    }, "draft-generation", "openai", "gpt-4.1-mini"),
+    status: "completed",
+    assistantMessages: [],
+    receivedMessages: [],
+  });
+  const draftResult = await store.createAIPrepSessionDraft(created.campaignId, session.id, {
+    clientRequestId: "req-1",
+    sectionKey: "identity",
+    sectionPath: "identity",
+    sectionData: { name: "Asha", shortDescription: "Original summary" },
+    structuredInput: { sectionKind: "identity" },
+    title: "Identity structured candidate",
+  }, bob);
+  await store.acceptAIDraft(created.campaignId, draftResult.aiDraft.draftId, bob);
+  const projected = await store.getCharacterSheetView(created.campaignId, sheet.sheetId, alice);
+
+  assert.equal(draftResult.aiDraft.candidateData.noChanges, true);
+  assert.equal(projected.structuredProfile.identity.shortDescription, "Original summary");
+  assert.equal(projected.structuredProfile.identity.name, "Asha");
+  assert.equal(projected.structuredProfile.appearance.text, "Short cloak");
+});
+
+test("structured AI session draft materializes dialog guidance into the selected section", async () => {
+  const { store } = await createStore();
+  const alice = await store.upsertIdentity("4d8b6f10-4a8b-48f4-b38c-d5128972e289", "Alice");
+  const bob = await store.upsertIdentity("c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", "Bob");
+  const created = await store.createCampaign(alice, { title: "Structured AI profile guidance" });
+  await store.joinCampaign(created.campaignId, bob);
+  const sheet = await store.createCharacterSheet(created.campaignId, {
+    structuredProfile: {
+      identity: { name: "Asha", shortDescription: "Original summary" },
+      appearance: { text: "Short cloak" },
+      personality: { traits: "Calm" },
+      backstory: { text: "A wanderer" },
+      campaignIntegration: { reasonToJoin: "Seek allies" },
+      mechanics: { text: "Free-form" },
+      publicNotes: "Visible note",
+      gmHooks: "Hidden hook",
+      playerIntent: { playStyle: "Support" },
+    },
+  }, bob);
+  const session = await store.createAIPrepSession(created.campaignId, {
+    title: "Identity AI",
+    targetKind: "character-profile-section",
+    targetId: sheet.sheetId,
+    sectionKey: "identity",
+    mode: "text-draft-generation",
+    policyProfile: "player-character-section-discussion",
+    outputKind: "draft",
+    sectionSnapshot: { name: "Asha", shortDescription: "Original summary" },
+  }, bob);
+  store.callAiProvider = async () => ({
+    provider: "openai",
+    model: "gpt-4.1-mini",
+    providerResponseId: "resp_candidate",
+    providerConversationId: "",
+    outputText: JSON.stringify({
+      name: "Asha the Bold",
+      shortDescription: "A decisive scout and protector",
+      ancestry: "Human",
+      characterClass: "Ranger",
+      role: "Scout",
+    }),
+    usage: store.normalizeUsage({
+      inputTokens: 1,
+      outputTokens: 1,
+      usageItems: [{ kind: "text-output-token", unit: "token", quantity: 1, providerUnitPriceUsd: 0, providerCostUsd: 0 }],
+    }, "draft-generation", "openai", "gpt-4.1-mini"),
+    status: "completed",
+    assistantMessages: [],
+    receivedMessages: [],
+  });
+  const draftResult = await store.createAIPrepSessionDraft(created.campaignId, session.id, {
+    clientRequestId: "req-1",
+    sectionKey: "identity",
+    sectionPath: "identity",
+    dialogContext: [
+      { role: "assistant", text: "Asha the Bold, a decisive scout and protector" },
+      { role: "user", text: "Make her sound more like a ranger" },
+    ],
+    structuredInput: { sectionKind: "identity" },
+    title: "Identity structured candidate",
+  }, bob);
+  await store.acceptAIDraft(created.campaignId, draftResult.aiDraft.draftId, bob);
+  const projected = await store.getCharacterSheetView(created.campaignId, sheet.sheetId, alice);
+
+  assert.equal(draftResult.aiDraft.candidateData.noChanges, false);
+  assert.equal(projected.structuredProfile.identity.shortDescription, "A decisive scout and protector");
+  assert.equal(projected.structuredProfile.identity.name, "Asha the Bold");
+  assert.equal(projected.structuredProfile.identity.ancestry, "Human");
+  assert.equal(projected.structuredProfile.identity.characterClass, "Ranger");
+  assert.equal(projected.structuredProfile.identity.role, "Scout");
+  assert.equal(projected.structuredProfile.appearance.text, "Short cloak");
+});
+
 test("file store cleanup removes expired campaigns and the 10-day boundary remains", async () => {
   const now = () => new Date("2026-05-20T00:00:00.000Z");
   const { store } = await createStore({ now });

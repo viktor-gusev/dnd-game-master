@@ -25,6 +25,7 @@ test("AIConversationPanel helper binds to a target and exposes the custom elemen
     api: async (path, options = {}) => {
       apiCalls.push([path, options.method || "GET", options.body || ""]);
       if (path.startsWith("/api/campaigns/campaign-1/ai/sessions?")) return { ok: true, data: { sessions: [] } };
+      if (path === "/api/campaigns/campaign-1/ai/sessions" && options.method === "POST") return { ok: true, data: { session: { id: "session-1" } } };
       throw new Error(`Unexpected API path: ${path}`);
     },
   };
@@ -67,6 +68,7 @@ test("AIConversationPanel helper source registers the custom element boundary", 
   assert.match(source, /dgm-ai-conversation-panel-open/);
   assert.match(source, /dgm-ai-conversation-panel-submit/);
   assert.match(source, /dgm-ai-conversation-panel-candidate-ready/);
+  assert.match(source, /showReviewButton = this\.\#state !== "closed" && this\.\#state !== "session-closed"/);
   assert.match(source, /dgm-ai-conversation-panel-refresh/);
   assert.match(source, /dgm-ai-conversation-panel-close/);
 });

@@ -40,6 +40,7 @@ export class AIConversationPanelElement extends BaseHTMLElement {
   #transcript = [];
   #candidate = null;
   #candidateReviewOpen = false;
+  #candidateReviewText = "";
   #scrollTranscriptToLatest = false;
   #scrollTranscriptHandle = 0;
 
@@ -86,6 +87,15 @@ export class AIConversationPanelElement extends BaseHTMLElement {
     this.#candidate = value && typeof value === "object" ? { ...value } : null;
     if (!this.#candidate) this.#candidateReviewOpen = false;
     this.render();
+  }
+
+  set candidateReviewText(value) {
+    this.#candidateReviewText = text(value);
+    this.render();
+  }
+
+  get candidateReviewText() {
+    return this.#candidateReviewText;
   }
 
   connectedCallback() {
@@ -139,10 +149,9 @@ export class AIConversationPanelElement extends BaseHTMLElement {
   }
 
   openCandidateReview() {
-    if (!this.#candidate) return;
     this.#candidateReviewOpen = true;
     this.render();
-    emit(this, "dgm-ai-conversation-panel-candidate-open", { binding: this.binding, candidate: this.#candidate });
+    emit(this, "dgm-ai-conversation-panel-candidate-requested", { binding: this.binding, candidate: this.#candidate });
   }
 
   closeCandidateReview() {
@@ -197,7 +206,7 @@ export class AIConversationPanelElement extends BaseHTMLElement {
     this.hidden = this.#state === "closed";
     const running = this.#state === "provider-running" || this.#state === "submitting-message" || this.#state === "creating-session" || this.#state === "loading-history" || this.#state === "resolving-session" || this.#state === "accepting-draft" || this.#state === "rejecting-draft" || this.#state === "regenerating";
     const allowActions = this.#state !== "closed" && this.#state !== "session-closed";
-    const showReviewButton = this.#state === "candidate-ready" && !!this.#candidate;
+    const showReviewButton = this.#state !== "closed" && this.#state !== "session-closed";
     this.#statusText = ({
       closed: "Closed.",
       "resolving-session": "Resolving session.",
@@ -261,11 +270,11 @@ export class AIConversationPanelElement extends BaseHTMLElement {
           </div>
         </label>
       </section>
-      ${this.#candidate && this.#candidateReviewOpen ? `
+      ${this.#candidateReviewOpen ? `
         <div class="candidate-overlay" role="presentation">
           <section class="candidate-review" role="dialog" aria-modal="true" aria-label="Candidate output review">
             <h4>Candidate output</h4>
-            <p>${text(this.#candidate.text || this.#candidate.content || "Pending")}</p>
+            <pre>${text(this.#candidateReviewText || this.#candidate.text || this.#candidate.content || JSON.stringify(this.#candidate, null, 2) || "Pending")}</pre>
             <div class="actions">
               <button type="button" data-action="accept-candidate">Approve and use</button>
               <button type="button" data-action="reject-candidate">Reject</button>

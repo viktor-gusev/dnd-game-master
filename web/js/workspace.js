@@ -29,6 +29,11 @@ function formatPerson(value) {
   return text(value) || "None yet";
 }
 
+const SECTION_ACTIONS = {
+  edit: { label: "Manual edit", icon: "✎" },
+  ai: { label: "AI assist", icon: "✦" },
+};
+
 function structuredProfileFallback(sheet) {
   return clone(sheet?.structuredProfile || {
     identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
@@ -73,6 +78,79 @@ function sectionGroups(profile, isOwner) {
   ].filter((group) => !group.hidden);
 }
 
+function sectionDataForGroup(profile, groupKey) {
+  return clone(profile?.[groupKey] ?? null);
+}
+
+function bindSectionWorkflowListeners(panel, shell) {
+  if (panel._sectionWorkflowListenersBound) return;
+  panel._sectionWorkflowListenersBound = true;
+  panel.addEventListener("dgm-ai-conversation-panel-candidate-requested", async () => {
+    const workflow = panel._sectionWorkflow;
+    if (!workflow) return;
+    const session = panel._sessionState?.session || (typeof panel.ensureSession === "function" ? await panel.ensureSession() : null);
+    if (!session?.id) {
+      const status = el("status", shell.document);
+      if (status) status.textContent = "Open the session first before reviewing a candidate.";
+      return;
+    }
+    const baseline = clone(typeof workflow.getSectionData === "function" ? workflow.getSectionData() : {});
+    panel.candidateReviewText = JSON.stringify(baseline ?? {}, null, 2);
+    const draftResponse = await shell.api(`/api/campaigns/${workflow.campaignId}/ai/sessions/${session.id}/drafts`, {
+      method: "POST",
+      operation: "create-ai-session-draft",
+        body: JSON.stringify({
+          clientRequestId: `${Date.now()}`,
+          sectionKey: workflow.sectionKey,
+          sectionPath: workflow.sectionKey,
+          sectionData: baseline,
+          sectionSnapshot: baseline,
+          dialogContext: typeof workflow.getDialogContext === "function" ? workflow.getDialogContext() : [],
+          structuredInput: {
+            sectionKind: workflow.sectionKey,
+            sectionData: baseline,
+          characterSummary: previewProfile(workflow.sheet),
+        },
+        title: `${workflow.sectionTitle} structured candidate`,
+      }),
+    });
+    if (!draftResponse.ok) {
+      if (typeof shell.pageError === "function") shell.pageError(draftResponse.error?.message || "Failed to create structured candidate.");
+      return;
+    }
+    const aiDraft = draftResponse.data.aiDraft;
+    panel.candidate = aiDraft;
+    panel.candidateReviewText = JSON.stringify(aiDraft.candidateData?.sectionData ?? aiDraft.candidateData ?? aiDraft, null, 2);
+    workflow.currentDraft = aiDraft;
+    if (typeof workflow.onRefresh === "function") {
+      workflow.onRefresh({ aiDraft, statusMessage: aiDraft.candidateData?.noChanges ? "No new proposal; showing current section snapshot." : "Structured candidate ready." });
+    }
+  });
+  panel.addEventListener("dgm-ai-conversation-panel-candidate-accepted", async (event) => {
+    const workflow = panel._sectionWorkflow;
+    const draftId = event.detail?.candidate?.draftId;
+    if (!workflow || !draftId) return;
+    await shell.api(`/api/campaigns/${workflow.campaignId}/ai/drafts/${draftId}/accept`, {
+      method: "POST",
+      operation: "accept-player-ai-draft",
+      body: JSON.stringify({}),
+    });
+    if (typeof workflow.onRefresh === "function") workflow.onRefresh({ aiDraft: null, statusMessage: "Structured candidate accepted." });
+    await loadWorkspace(shell, workflow.campaignId, shell.pageContext.kind, workflow.onRefresh);
+  });
+  panel.addEventListener("dgm-ai-conversation-panel-candidate-rejected", async () => {
+    const workflow = panel._sectionWorkflow;
+    const draftId = panel.candidate?.draftId;
+    if (!workflow || !draftId) return;
+    await shell.api(`/api/campaigns/${workflow.campaignId}/ai/drafts/${draftId}/reject`, {
+      method: "POST",
+      operation: "reject-player-ai-draft",
+      body: JSON.stringify({}),
+    });
+    if (typeof workflow.onRefresh === "function") workflow.onRefresh({ aiDraft: null, statusMessage: "Structured candidate rejected." });
+  });
+}
+
 function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
   const sheetId = state.sheetId || state.sheet?.sheetId || "";
   const card = doc.createElement("section");
@@ -84,8 +162,81 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
   header.appendChild(title);
   const status = doc.createElement("p");
   status.className = "workshop-section-status";
-  status.textContent = state.editingSection === group.key ? "Editing locally" : "Readable";
+  status.textContent = state.editingSection === group.key ? "Editing locally" : state.assistSection === group.key ? "AI assist open" : "Readable";
   header.appendChild(status);
+  const actions = doc.createElement("div");
+  actions.className = "workshop-actions workshop-actions-icon";
+  const edit = doc.createElement("button");
+  edit.type = "button";
+  edit.className = "workshop-icon-button";
+  edit.textContent = SECTION_ACTIONS.edit.icon;
+  edit.title = SECTION_ACTIONS.edit.label;
+  edit.setAttribute("aria-label", SECTION_ACTIONS.edit.label);
+  edit.addEventListener("click", () => onRefresh({ editingSection: group.key, assistSection: "", draftProfile: clone(state.sheet?.structuredProfile || structuredProfileFallback(null)), aiDraft: null }));
+  actions.appendChild(edit);
+  const ai = doc.createElement("button");
+  ai.type = "button";
+  ai.className = "workshop-icon-button";
+  ai.textContent = SECTION_ACTIONS.ai.icon;
+  ai.title = SECTION_ACTIONS.ai.label;
+  ai.setAttribute("aria-label", SECTION_ACTIONS.ai.label);
+  ai.addEventListener("click", async () => {
+    const draftProfile = state.draftProfile || state.sheet?.structuredProfile || structuredProfileFallback(null);
+    const sectionSnapshot = sectionDataForGroup(state.sheet?.structuredProfile || state.draftProfile || draftProfile, group.key);
+    let activeSheetId = sheetId;
+    if (!activeSheetId) {
+      const response = await shell.api(`/api/campaigns/${state.campaignId}/character-sheets`, {
+        method: "POST",
+        operation: "create-character-section-draft",
+        body: JSON.stringify({ structuredProfile: draftProfile }),
+      });
+      if (!response.ok) {
+        if (typeof shell.pageError === "function") shell.pageError(response.error?.message || "Failed to prepare AI target.");
+        const statusLine = el("status", doc);
+        if (statusLine) statusLine.textContent = response.error?.message || "Failed to prepare AI target.";
+        return;
+      }
+      activeSheetId = response.data.characterSheet?.sheetId || "";
+      onRefresh({ sheet: response.data.characterSheet, sheetId: activeSheetId });
+    }
+    onRefresh({ editingSection: "", assistSection: group.key, draftProfile: clone(draftProfile), aiDraft: null });
+    createAIConversationPanel(shell, {
+      campaignId: state.campaignId,
+      targetKind: "character-profile-section",
+      targetId: activeSheetId,
+      sectionKey: group.key,
+      mode: "text-draft-generation",
+      policyProfile: "player-character-section-discussion",
+      outputKind: "draft",
+      sectionSnapshot,
+    }, {
+      title: `${group.title} AI session`,
+      placeholder: `Discuss ${group.title.toLowerCase()}.`,
+    });
+    const panel = doc.querySelector?.("dgm-ai-conversation-panel[data-role='ai-conversation-panel']");
+    if (panel) {
+      bindSectionWorkflowListeners(panel, shell);
+      panel._sectionWorkflow = {
+        campaignId: state.campaignId,
+        sectionKey: group.key,
+        sectionTitle: group.title,
+        sheet: clone(state.sheet || {}),
+        sectionSnapshot: clone(sectionSnapshot),
+        currentDraft: null,
+        onRefresh,
+        getSectionData: () => clone(sectionSnapshot),
+        getDialogContext: () => panel.transcript.map((message) => ({
+          role: message.role,
+          text: text(message.text || message.content || ""),
+        })),
+      };
+      const currentSectionData = panel._sectionWorkflow.getSectionData();
+      panel.candidate = null;
+      panel.candidateReviewText = JSON.stringify(currentSectionData ?? {}, null, 2);
+    }
+  });
+  actions.appendChild(ai);
+  header.appendChild(actions);
   card.appendChild(header);
 
   if (state.editingSection === group.key) {
@@ -136,26 +287,6 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
     cancel.addEventListener("click", () => onRefresh({ editingSection: "", draftProfile: null, aiDraft: null }));
     actions.appendChild(save);
     actions.appendChild(cancel);
-    if (shell.pageContext.kind === "player workspace") {
-      const aiPanel = createAIConversationPanel(shell, {
-        campaignId: state.campaignId,
-        targetKind: "character-profile-section",
-        targetId: sheetId,
-        sectionKey: group.fields[0][0],
-        mode: "text-draft-generation",
-        policyProfile: "player-character-section-discussion",
-        outputKind: "draft",
-      }, {
-        title: `${group.title} AI session`,
-        placeholder: `Discuss ${group.title.toLowerCase()}.`,
-        ensureTargetId: async () => {
-          if (sheetId) return sheetId;
-          if (saveInProgress) return "";
-          return submitSection({ preventDefault() {} });
-        },
-      });
-      card.appendChild(aiPanel);
-    }
     form.appendChild(actions);
     for (const [path, label] of group.fields) {
       const labelEl = doc.createElement("label");
@@ -186,11 +317,6 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
     card.appendChild(body);
     const actions = doc.createElement("div");
     actions.className = "workshop-actions";
-    const edit = doc.createElement("button");
-    edit.type = "button";
-    edit.textContent = "Edit";
-    edit.addEventListener("click", () => onRefresh({ editingSection: group.key, draftProfile: clone(state.sheet?.structuredProfile || structuredProfileFallback(null)), aiDraft: null }));
-    actions.appendChild(edit);
     if (state.aiDraft?.sectionPath === group.fields[0][0] && state.aiDraft.state === "draft") {
       const candidate = doc.createElement("p");
       candidate.className = "workshop-candidate";
@@ -310,7 +436,7 @@ export async function initializeWorkspaceApp(shell, kind) {
   const doc = shell.document;
   const params = new URL(shell.locationApi?.href || doc.location?.href || "http://localhost/workspace.html").searchParams;
   const campaignId = params.get("campaignId") || "";
-  const state = { campaignId, editingSection: "", draftProfile: null, aiDraft: null, sheet: null, campaign: null, participants: [], materials: [], assets: [], aiDrafts: [], events: [], credits: [], publicPreview: null };
+  const state = { campaignId, editingSection: "", assistSection: "", draftProfile: null, aiDraft: null, sheet: null, campaign: null, participants: [], materials: [], assets: [], aiDrafts: [], events: [], credits: [], publicPreview: null };
   shell.setPageContext({ kind, campaignId });
   shell.handleNotification = async (notification) => {
     if (!notification || notification.scope !== "campaign") return;
@@ -340,6 +466,7 @@ export async function initializeWorkspaceApp(shell, kind) {
       sheetId: sheet?.sheetId || "",
       publicPreview: previewProfile(sheet),
       editingSection: overrides.editingSection || state.editingSection,
+      assistSection: overrides.assistSection || state.assistSection,
       draftProfile: overrides.draftProfile || state.draftProfile,
       aiDraft: overrides.aiDraft === undefined ? state.aiDraft : overrides.aiDraft,
     });
