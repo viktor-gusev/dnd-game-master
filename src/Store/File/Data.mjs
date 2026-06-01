@@ -29,15 +29,18 @@ function normalizeNickname(nickname) {
 const RETENTION_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
 
 const STRUCTURED_PROFILE_DEFAULTS = Object.freeze({
-  identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
-  appearance: { text: "" },
-  personality: { traits: "", motivation: "", fears: "", mannerisms: "", speechStyle: "" },
-  backstory: { text: "", importantNpc: "", openHooks: "" },
-  campaignIntegration: { reasonToJoin: "", linksToOtherCharacters: "", gmUsableHooks: "", boundaries: "" },
-  mechanics: { text: "" },
-  publicNotes: "",
-  gmHooks: "",
-  playerIntent: { playStyle: "", themes: "", aiHelpMode: "" },
+  publicFace: {
+    identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
+    appearance: "",
+    personality: { traits: [], mannerisms: [], speechStyle: "" },
+    background: [],
+  },
+  innerLife: {
+    secrets: [],
+    goals: [],
+    fears: [],
+    hooks: [],
+  },
 });
 
 const AI_POLICY_PROFILES = Object.freeze({
@@ -49,8 +52,7 @@ const AI_POLICY_PROFILES = Object.freeze({
 });
 
 const AI_TARGET_KINDS = new Set([
-  "character-profile-section",
-  "character-sheet-section",
+  "character-profile",
   "campaign-brief",
   "campaign-material",
   "npc-material",
@@ -107,15 +109,38 @@ function safeInt(value, fallback = 0) {
 function normalizeStructuredProfile(profile = {}) {
   const next = clone(STRUCTURED_PROFILE_DEFAULTS);
   const source = profile && typeof profile === "object" ? profile : {};
-  for (const [section, defaults] of Object.entries(STRUCTURED_PROFILE_DEFAULTS)) {
-    if (typeof defaults === "string") {
-      next[section] = typeof source[section] === "string" ? source[section] : defaults;
-      continue;
-    }
-    const input = source[section] && typeof source[section] === "object" ? source[section] : {};
-    next[section] = { ...defaults };
-    for (const key of Object.keys(defaults)) next[section][key] = typeof input[key] === "string" ? input[key] : defaults[key];
-  }
+  const publicFace = source.publicFace && typeof source.publicFace === "object" ? source.publicFace : source;
+  const innerLife = source.innerLife && typeof source.innerLife === "object" ? source.innerLife : source;
+  const identitySource = publicFace.identity && typeof publicFace.identity === "object" ? publicFace.identity : source.identity;
+  const personalitySource = publicFace.personality && typeof publicFace.personality === "object" ? publicFace.personality : source.personality;
+  next.publicFace.identity = {
+    name: typeof identitySource?.name === "string" ? identitySource.name : "",
+    shortDescription: typeof identitySource?.shortDescription === "string" ? identitySource.shortDescription : "",
+    ancestry: typeof identitySource?.ancestry === "string" ? identitySource.ancestry : "",
+    characterClass: typeof identitySource?.characterClass === "string" ? identitySource.characterClass : "",
+    role: typeof identitySource?.role === "string" ? identitySource.role : "",
+  };
+  next.publicFace.appearance = typeof publicFace.appearance === "string"
+    ? publicFace.appearance
+    : typeof source.appearance?.text === "string"
+      ? source.appearance.text
+      : "";
+  next.publicFace.personality = {
+    traits: Array.isArray(personalitySource?.traits) ? personalitySource.traits.filter((item) => typeof item === "string") : [],
+    mannerisms: Array.isArray(personalitySource?.mannerisms) ? personalitySource.mannerisms.filter((item) => typeof item === "string") : [],
+    speechStyle: typeof personalitySource?.speechStyle === "string" ? personalitySource.speechStyle : "",
+  };
+  next.publicFace.background = Array.isArray(publicFace.background)
+    ? publicFace.background.filter((item) => typeof item === "string")
+    : Array.isArray(source.backstory)
+      ? source.backstory.filter((item) => typeof item === "string")
+      : Array.isArray(source.background)
+        ? source.background.filter((item) => typeof item === "string")
+        : [];
+  next.innerLife.secrets = Array.isArray(innerLife.secrets) ? innerLife.secrets.filter((item) => typeof item === "string") : Array.isArray(source.gmHooks) ? source.gmHooks.filter((item) => typeof item === "string") : [];
+  next.innerLife.goals = Array.isArray(innerLife.goals) ? innerLife.goals.filter((item) => typeof item === "string") : Array.isArray(source.playerIntent?.goals) ? source.playerIntent.goals.filter((item) => typeof item === "string") : [];
+  next.innerLife.fears = Array.isArray(innerLife.fears) ? innerLife.fears.filter((item) => typeof item === "string") : [];
+  next.innerLife.hooks = Array.isArray(innerLife.hooks) ? innerLife.hooks.filter((item) => typeof item === "string") : [];
   return next;
 }
 
@@ -134,6 +159,25 @@ function setSectionValue(profile, sectionPath, value) {
   cursor[parts.at(-1)] = value;
 }
 
+function setLegacyProfileValue(profile, sectionPath, value) {
+  const map = {
+    identity: "publicFace.identity",
+    appearance: "publicFace.appearance",
+    personality: "publicFace.personality",
+    backstory: "publicFace.background",
+    campaignIntegration: "publicFace.background",
+    mechanics: "publicFace.background",
+    publicNotes: "publicFace.background",
+    gmHooks: "innerLife.secrets",
+    playerIntent: "innerLife.goals",
+  };
+  for (const [prefix, target] of Object.entries(map)) {
+    if (sectionPath === prefix) return setSectionValue(profile, target, value);
+    if (sectionPath.startsWith(`${prefix}.`)) return setSectionValue(profile, `${target}.${sectionPath.slice(prefix.length + 1)}`, value);
+  }
+  return setSectionValue(profile, sectionPath, value);
+}
+
 function sectionValueForPath(profile, sectionPath) {
   return clone(getSectionValue(profile, sectionPath));
 }
@@ -141,15 +185,15 @@ function sectionValueForPath(profile, sectionPath) {
 function sectionValueForSectionKey(profile, sectionKey) {
   if (!sectionKey) return null;
   if (Object.prototype.hasOwnProperty.call(profile, sectionKey)) return sectionValueForPath(profile, sectionKey);
-  if (sectionKey === "identity") return sectionValueForPath(profile, "identity");
-  if (sectionKey === "appearance") return sectionValueForPath(profile, "appearance");
-  if (sectionKey === "personality") return sectionValueForPath(profile, "personality");
-  if (sectionKey === "backstory") return sectionValueForPath(profile, "backstory");
-  if (sectionKey === "campaignIntegration") return sectionValueForPath(profile, "campaignIntegration");
-  if (sectionKey === "mechanics") return sectionValueForPath(profile, "mechanics");
-  if (sectionKey === "publicNotes") return sectionValueForPath(profile, "publicNotes");
-  if (sectionKey === "gmHooks") return sectionValueForPath(profile, "gmHooks");
-  if (sectionKey === "playerIntent") return sectionValueForPath(profile, "playerIntent");
+  if (sectionKey === "publicFace") return sectionValueForPath(profile, "publicFace");
+  if (sectionKey === "innerLife") return sectionValueForPath(profile, "innerLife");
+  if (sectionKey === "identity") return sectionValueForPath(profile, "publicFace.identity");
+  if (sectionKey === "appearance") return sectionValueForPath(profile, "publicFace.appearance");
+  if (sectionKey === "personality") return sectionValueForPath(profile, "publicFace.personality");
+  if (sectionKey === "backstory") return sectionValueForPath(profile, "publicFace.background");
+  if (sectionKey === "publicNotes") return sectionValueForPath(profile, "publicFace.background");
+  if (sectionKey === "gmHooks") return sectionValueForPath(profile, "innerLife.secrets");
+  if (sectionKey === "playerIntent") return sectionValueForPath(profile, "innerLife.goals");
   return null;
 }
 
@@ -329,6 +373,7 @@ function normalizeSheet(sheet = {}, campaignId) {
     ownerIdentityId: sheet.ownerIdentityId || sheet.playerIdentityId || "",
     title: sheet.title || "Character Sheet",
     state: sheet.state || "draft",
+    publicationState: sheet.publicationState || sheet.state || "draft",
     structuredProfile: normalizeStructuredProfile(sheet.structuredProfile || {}),
     assetRefs: Array.isArray(sheet.assetRefs) ? sheet.assetRefs : [],
     primaryPortraitAssetId: sheet.primaryPortraitAssetId || "",
@@ -340,13 +385,7 @@ function normalizeSheet(sheet = {}, campaignId) {
 
 function publicStructuredProfile(sheet) {
   return {
-    identity: sheet.structuredProfile.identity,
-    appearance: sheet.structuredProfile.appearance,
-    personality: sheet.structuredProfile.personality,
-    backstory: sheet.structuredProfile.backstory,
-    campaignIntegration: sheet.structuredProfile.campaignIntegration,
-    mechanics: sheet.structuredProfile.mechanics,
-    publicNotes: sheet.structuredProfile.publicNotes,
+    publicFace: sheet.structuredProfile.publicFace,
   };
 }
 
@@ -502,7 +541,7 @@ export default class Dnd_Gm_Store_File_Data {
     this.listVisibleAIPrepMessages = (messages, sessionId, threadId = "") => (Array.isArray(messages) ? messages : []).filter((message) => message.sessionId === sessionId && (!threadId || message.threadId === threadId) && isUserVisibleAiMessage(message));
 
     this.getAIPrepSectionSnapshot = (current, session) => {
-      if (!current || !session || session.targetKind !== "character-profile-section") return null;
+      if (!current || !session || session.targetKind !== "character-profile") return null;
       if (session.sectionSnapshot && typeof session.sectionSnapshot === "object") return clone(session.sectionSnapshot);
       const sheet = (current.characterSheets || []).find((item) => item.sheetId === session.targetId) || null;
       if (!sheet) return null;
@@ -731,7 +770,7 @@ export default class Dnd_Gm_Store_File_Data {
         ownerIdentityId: identity.id,
         title: String(body.title || "").trim() || "Character Sheet",
         state: "draft",
-        content: String(body.content || "").trim(),
+        publicationState: "draft",
         structuredProfile: normalizeStructuredProfile(body.structuredProfile || {}),
         assetRefs: Array.isArray(body.assetRefs) ? body.assetRefs : [],
         primaryPortraitAssetId: typeof body.primaryPortraitAssetId === "string" ? body.primaryPortraitAssetId : "",
@@ -752,13 +791,13 @@ export default class Dnd_Gm_Store_File_Data {
       if (!sheet) return null;
       if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may edit this draft sheet."), { code: "forbidden" });
       if (typeof body.title === "string") sheet.title = body.title.trim() || sheet.title;
-      if (typeof body.content === "string") sheet.content = body.content;
       if (body.structuredProfile) sheet.structuredProfile = normalizeStructuredProfile(body.structuredProfile);
       if (body.sectionPath && Object.prototype.hasOwnProperty.call(body, "sectionValue")) {
         const normalized = normalizeStructuredProfile(sheet.structuredProfile);
         setSectionValue(normalized, body.sectionPath, typeof body.sectionValue === "string" ? body.sectionValue : "");
         sheet.structuredProfile = normalized;
       }
+      if (typeof body.publicationState === "string") sheet.publicationState = body.publicationState === "published" ? "published" : "draft";
       if (Array.isArray(body.assetRefs)) sheet.assetRefs = body.assetRefs;
       if (typeof body.primaryPortraitAssetId === "string") sheet.primaryPortraitAssetId = body.primaryPortraitAssetId;
       if (typeof body.tokenAssetId === "string") sheet.tokenAssetId = body.tokenAssetId;
@@ -773,11 +812,9 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const sheet = current.characterSheets.find((item) => item.sheetId === sheetId);
       if (!sheet) return null;
-      if (current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may approve character sheets."), { code: "forbidden" });
-      sheet.state = "approved";
-      for (const asset of current.assets) {
-        if (asset.linkedSheetId === sheetId && asset.publishOnApproval) asset.publicationState = "published";
-      }
+      if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may publish this character profile."), { code: "forbidden" });
+      sheet.publicationState = "published";
+      sheet.state = "published";
       sheet.updatedAt = this.timestamp();
       await writeJson(this.characterSheetsJson(campaignId), { characterSheets: current.characterSheets });
       await this.touchCampaign(campaignId, identity.id, "character.sheet.approved", { sheetId });
@@ -789,7 +826,8 @@ export default class Dnd_Gm_Store_File_Data {
       if (!current) return null;
       const sheet = current.characterSheets.find((item) => item.sheetId === sheetId);
       if (!sheet) return null;
-      if (current.campaign.gm.uuid !== identity.id) throw Object.assign(new Error("Only the Game Master may return character sheets to draft."), { code: "forbidden" });
+      if (sheet.playerIdentityId !== identity.id) throw Object.assign(new Error("Only the owner may return this character profile to draft."), { code: "forbidden" });
+      sheet.publicationState = "draft";
       sheet.state = "draft";
       sheet.updatedAt = this.timestamp();
       await writeJson(this.characterSheetsJson(campaignId), { characterSheets: current.characterSheets });
@@ -869,37 +907,31 @@ export default class Dnd_Gm_Store_File_Data {
       }
       await this.saveIdempotencyRecord(campaignId, identity.id, endpointKey, clientRequestId, { clientRequestId, campaignId, identityId: identity.id, endpointKey, sessionId, requestHash, status: "started", createdAt: this.timestamp() });
       const targetSheet = current.characterSheets.find((item) => item.sheetId === session.targetId) || null;
-      const currentSectionShape = targetSheet?.structuredProfile && sectionKey
-        ? sectionValueForSectionKey(normalizeStructuredProfile(targetSheet.structuredProfile), sectionKey)
-        : null;
-      const baselineSectionData = currentSectionShape && typeof currentSectionShape === "object"
-        ? normalizeStructuredCandidate(currentSectionShape, body.sectionSnapshot && typeof body.sectionSnapshot === "object" ? body.sectionSnapshot : body.sectionData && typeof body.sectionData === "object" ? body.sectionData : session.sectionSnapshot && typeof session.sectionSnapshot === "object" ? session.sectionSnapshot : currentSectionShape)
-        : body.sectionSnapshot && typeof body.sectionSnapshot === "object"
-          ? clone(body.sectionSnapshot)
-          : body.sectionData && typeof body.sectionData === "object"
-            ? clone(body.sectionData)
+      const baselineSectionData = targetSheet?.structuredProfile
+        ? normalizeStructuredProfile(targetSheet.structuredProfile)
+        : body.structuredInput && typeof body.structuredInput === "object"
+          ? normalizeStructuredProfile(body.structuredInput)
+          : body.sectionSnapshot && typeof body.sectionSnapshot === "object"
+            ? normalizeStructuredProfile(body.sectionSnapshot)
             : session.sectionSnapshot && typeof session.sectionSnapshot === "object"
-              ? clone(session.sectionSnapshot)
+              ? normalizeStructuredProfile(session.sectionSnapshot)
               : null;
       if (baselineSectionData && !session.sectionSnapshot) session.sectionSnapshot = clone(baselineSectionData);
-      const structuredMessages = buildStructuredDraftPrompt(sectionKey, baselineSectionData ?? {}, dialogContext);
+      const structuredMessages = buildStructuredDraftPrompt("structured profile", baselineSectionData ?? {}, dialogContext);
       const schema = structuredSnapshotSchema(baselineSectionData ?? {});
       const providerResult = await this.callAiProvider({
         session: { ...session, mode: "text-draft-generation" },
         thread: { id: session.activeThreadId || "", providerConversationId: null, lastResponseId: null },
         messages: structuredMessages,
         operation: "draft-generation",
-        textFormat: { type: "json_schema", name: `section_${sectionKey || "candidate"}_candidate`, strict: true, schema },
+        textFormat: { type: "json_schema", name: "structured_profile_candidate", strict: true, schema },
       });
       const parsedCandidate = parseJsonCandidate(providerResult.outputText);
-      const normalizedSectionData = baselineSectionData && parsedCandidate
+      const sectionData = baselineSectionData && parsedCandidate
         ? normalizeStructuredCandidate(baselineSectionData, parsedCandidate)
         : baselineSectionData && parsedCandidate === null
           ? clone(baselineSectionData)
           : parsedCandidate;
-      const sectionData = normalizedSectionData && baselineSectionData && typeof baselineSectionData === "object" && typeof normalizedSectionData === "object"
-        ? normalizeStructuredCandidate(baselineSectionData, normalizedSectionData)
-        : normalizedSectionData;
       const noChanges = stableStringify(sectionData) === stableStringify(baselineSectionData);
       const draft = {
         draftId: `draft_${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`,
@@ -911,14 +943,14 @@ export default class Dnd_Gm_Store_File_Data {
         sourceDraftId: "",
         ownerIdentityId: identity.id,
         ownerRole: current.campaign.gm.uuid === identity.id ? "game_master" : "player",
-        targetSheetId: session.targetKind === "character-profile-section" ? session.targetId : "",
+        targetSheetId: session.targetKind === "character-profile" ? session.targetId : "",
         sectionPath,
         candidateText: "",
         candidateData: {
           targetKind: session.targetKind,
           targetId: session.targetId,
-          sectionKey,
-          sectionPath,
+          sectionKey: "structuredProfile",
+          sectionPath: "structuredProfile",
           sectionData,
           structuredInput: body.structuredInput && typeof body.structuredInput === "object" ? clone(body.structuredInput) : {},
           assistantSummary: providerResult.outputText || "",
@@ -998,13 +1030,11 @@ export default class Dnd_Gm_Store_File_Data {
       const sheet = current.characterSheets.find((item) => item.sheetId === draft.targetSheetId);
       if (!sheet) throw Object.assign(new Error("Unknown character sheet id."), { code: "unknown_character_sheet" });
       if (sheet.playerIdentityId !== identity.id && !isGM) throw Object.assign(new Error("Only the authorized owner may accept this AI draft."), { code: "forbidden" });
-      if (draft.candidateData && draft.candidateData.sectionData && draft.candidateData.sectionKey) {
-        const normalized = normalizeStructuredProfile(sheet.structuredProfile);
-        setSectionValue(normalized, draft.candidateData.sectionKey, draft.candidateData.sectionData);
-        sheet.structuredProfile = normalized;
+      if (draft.candidateData && draft.candidateData.sectionData) {
+        sheet.structuredProfile = normalizeStructuredProfile(draft.candidateData.sectionData);
       } else if (draft.sectionPath) {
         const normalized = normalizeStructuredProfile(sheet.structuredProfile);
-        setSectionValue(normalized, draft.sectionPath, draft.candidateText || draft.content || "");
+        setLegacyProfileValue(normalized, draft.sectionPath, draft.candidateText || draft.content || "");
         sheet.structuredProfile = normalized;
       }
       sheet.updatedAt = this.timestamp();
@@ -1504,12 +1534,12 @@ export default class Dnd_Gm_Store_File_Data {
       return sheets.map((sheet) => ({
         sheetId: sheet.sheetId,
         title: sheet.title,
-        state: sheet.state,
+        state: sheet.publicationState || sheet.state,
         playerIdentityId: sheet.playerIdentityId,
         ownerIdentityId: sheet.ownerIdentityId,
         summary: {
-          name: sheet.structuredProfile.identity.name,
-          shortDescription: sheet.structuredProfile.identity.shortDescription,
+          name: sheet.structuredProfile.publicFace.identity.name,
+          shortDescription: sheet.structuredProfile.publicFace.identity.shortDescription,
         },
       }));
     };
@@ -1525,19 +1555,15 @@ export default class Dnd_Gm_Store_File_Data {
       if (!isGM && !isOwner && !isParticipant) return null;
       const assets = (current.assets || []).filter((asset) => asset.linkedSheetId === sheetId);
       const publicProfile = publicStructuredProfile(sheet);
-      const privateProfile = {
-        gmHooks: sheet.structuredProfile.gmHooks,
-        playerIntent: sheet.structuredProfile.playerIntent,
-      };
       const visibleAssets = assets.map(publicAssetProjection).filter(Boolean);
       const ownerAssets = assets.map((asset) => (isGM || isOwner ? normalizeAsset(asset, { campaignId, ownerIdentityId: sheet.playerIdentityId, ownerRole: "player" }) : null)).filter(Boolean);
       return {
         sheetId: sheet.sheetId,
-        state: sheet.state,
+        state: sheet.publicationState || sheet.state,
         playerIdentityId: sheet.playerIdentityId,
         ownerIdentityId: sheet.ownerIdentityId,
         title: sheet.title,
-        structuredProfile: isGM || isOwner ? { ...publicProfile, ...privateProfile } : publicProfile,
+        structuredProfile: isGM || isOwner ? sheet.structuredProfile : publicProfile,
         assetRefs: isGM || isOwner ? ownerAssets : visibleAssets,
         primaryPortraitAssetId: sheet.primaryPortraitAssetId,
         tokenAssetId: sheet.tokenAssetId,

@@ -221,7 +221,7 @@ export default class Dnd_Gm_Web_Handler_Api {
     this.postAIPrepSession = async (campaignId, req, res, context) => {
       const identity = await this.resolveIdentityFromHeader(req);
       const body = await readBody(req);
-      const allowedTargetKinds = new Set(["character-profile-section", "character-sheet-section", "campaign-brief", "campaign-material", "npc-material", "location-material", "handout", "map", "asset-task"]);
+      const allowedTargetKinds = new Set(["character-profile", "campaign-brief", "campaign-material", "npc-material", "location-material", "handout", "map", "asset-task"]);
       const allowedModes = new Set(["text-discussion", "text-draft-generation", "image-prompt-discussion", "image-generation", "image-editing", "summary"]);
       const allowedOutputKinds = new Set(["message", "draft", "asset"]);
       if (body.targetKind && !allowedTargetKinds.has(String(body.targetKind).trim())) throw Object.assign(new Error("Unsupported targetKind."), { code: "invalid_input" });

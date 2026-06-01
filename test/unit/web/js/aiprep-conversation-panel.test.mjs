@@ -29,12 +29,12 @@ test("AIConversationPanel helper binds to a target and exposes the custom elemen
       throw new Error(`Unexpected API path: ${path}`);
     },
   };
-  const panel = createAIConversationPanel(shell, { campaignId: "campaign-1", targetKind: "character-profile-section", targetId: "sheet-1", sectionKey: "identity.name", mode: "text-draft-generation", policyProfile: "player-character-section-discussion", outputKind: "draft" }, { title: "Identity AI" });
+  const panel = createAIConversationPanel(shell, { campaignId: "campaign-1", targetKind: "character-profile", targetId: "sheet-1", sectionKey: "structuredProfile", mode: "text-draft-generation", policyProfile: "player-character-section-discussion", outputKind: "draft" }, { title: "Identity AI" });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(panel.attributes["aria-label"], "Identity AI");
   assert.equal(panel.binding.campaignId, "campaign-1");
-  assert.equal(panel.binding.targetKind, "character-profile-section");
+  assert.equal(panel.binding.targetKind, "character-profile");
   assert.equal(panel.state, "ready-empty");
   assert.equal(document.body.children.includes(panel), true);
   assert.equal(apiCalls.some(([path]) => path.startsWith("/api/campaigns/campaign-1/ai/sessions?")), true);
@@ -49,8 +49,8 @@ test("AIConversationPanel helper reuses the page singleton panel", async () => {
       return { ok: true, data: { sessions: [] } };
     },
   };
-  const first = createAIConversationPanel(shell, { campaignId: "campaign-1", targetKind: "character-profile-section", targetId: "sheet-1" }, { title: "Identity AI" });
-  const second = createAIConversationPanel(shell, { campaignId: "campaign-1", targetKind: "character-profile-section", targetId: "sheet-2" }, { title: "Identity AI" });
+  const first = createAIConversationPanel(shell, { campaignId: "campaign-1", targetKind: "character-profile", targetId: "sheet-1" }, { title: "Identity AI" });
+  const second = createAIConversationPanel(shell, { campaignId: "campaign-1", targetKind: "character-profile", targetId: "sheet-2" }, { title: "Identity AI" });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.strictEqual(second, first);

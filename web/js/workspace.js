@@ -35,28 +35,29 @@ const SECTION_ACTIONS = {
 };
 
 function structuredProfileFallback(sheet) {
-  return clone(sheet?.structuredProfile || {
-    identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
-    appearance: { text: "" },
-    personality: { traits: "", motivation: "", fears: "", mannerisms: "", speechStyle: "" },
-    backstory: { text: "", importantNpc: "", openHooks: "" },
-    campaignIntegration: { reasonToJoin: "", linksToOtherCharacters: "", gmUsableHooks: "", boundaries: "" },
-    mechanics: { text: "" },
-    publicNotes: "",
-    gmHooks: "",
-    playerIntent: { playStyle: "", themes: "", aiHelpMode: "" },
+  const raw = sheet?.structuredProfile || {
+    publicFace: { identity: { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" }, appearance: "", personality: { traits: [], mannerisms: [], speechStyle: "" }, background: [] },
+    innerLife: { secrets: [], goals: [], fears: [], hooks: [] },
+  };
+  if (raw.publicFace) return clone(raw);
+  return clone({
+    publicFace: {
+      identity: raw.identity || { name: "", shortDescription: "", ancestry: "", characterClass: "", role: "" },
+      appearance: raw.appearance?.text || raw.appearance || "",
+      personality: {
+        traits: Array.isArray(raw.personality?.traits) ? raw.personality.traits : typeof raw.personality?.traits === "string" ? [raw.personality.traits] : [],
+        mannerisms: Array.isArray(raw.personality?.mannerisms) ? raw.personality.mannerisms : [],
+        speechStyle: raw.personality?.speechStyle || "",
+      },
+      background: Array.isArray(raw.backstory) ? raw.backstory : raw.backstory?.text ? [raw.backstory.text] : [],
+    },
+    innerLife: { secrets: [], goals: [], fears: [], hooks: [] },
   });
 }
 
 function publicProjection(sheet) {
   return {
-    identity: sheet?.structuredProfile?.identity || {},
-    appearance: sheet?.structuredProfile?.appearance || {},
-    personality: sheet?.structuredProfile?.personality || {},
-    backstory: sheet?.structuredProfile?.backstory || {},
-    campaignIntegration: sheet?.structuredProfile?.campaignIntegration || {},
-    mechanics: sheet?.structuredProfile?.mechanics || {},
-    publicNotes: sheet?.structuredProfile?.publicNotes || "",
+    publicFace: sheet?.structuredProfile?.publicFace || {},
   };
 }
 
@@ -66,20 +67,34 @@ function previewProfile(sheet) {
 
 function sectionGroups(profile, isOwner) {
   return [
-    { key: "identity", title: "Identity", fields: [["identity.name", "Name"], ["identity.shortDescription", "Short description"], ["identity.ancestry", "Ancestry"], ["identity.characterClass", "Class"], ["identity.role", "Role"]] },
-    { key: "appearance", title: "Appearance", fields: [["appearance.text", "Appearance"]] },
-    { key: "personality", title: "Personality", fields: [["personality.traits", "Traits"], ["personality.motivation", "Motivation"], ["personality.fears", "Fears"], ["personality.mannerisms", "Mannerisms"], ["personality.speechStyle", "Speech style"]] },
-    { key: "backstory", title: "Backstory", fields: [["backstory.text", "Backstory"], ["backstory.importantNpc", "Important NPC"], ["backstory.openHooks", "Open hooks"]] },
-    { key: "campaignIntegration", title: "Campaign integration", fields: [["campaignIntegration.reasonToJoin", "Reason to join"], ["campaignIntegration.linksToOtherCharacters", "Links to other characters"], ["campaignIntegration.gmUsableHooks", "GM-usable hooks"], ["campaignIntegration.boundaries", "Boundaries"]] },
-    { key: "mechanics", title: "Mechanics", fields: [["mechanics.text", "Mechanics text"]] },
-    { key: "publicNotes", title: "Public notes", fields: [["publicNotes", "Public notes"]] },
-    { key: "gmHooks", title: "GM hooks", fields: [["gmHooks", "GM hooks"]], hidden: !isOwner },
-    { key: "playerIntent", title: "Player intent", fields: [["playerIntent.playStyle", "Play style"], ["playerIntent.themes", "Themes"], ["playerIntent.aiHelpMode", "AI help mode"]], hidden: !isOwner },
+    { key: "publicFace.identity", title: "Identity", fields: [["publicFace.identity.name", "Name"], ["publicFace.identity.shortDescription", "Short description"], ["publicFace.identity.ancestry", "Ancestry"], ["publicFace.identity.characterClass", "Class"], ["publicFace.identity.role", "Role"]] },
+    { key: "publicFace.appearance", title: "Appearance", fields: [["publicFace.appearance", "Appearance"]] },
+    { key: "publicFace.personality", title: "Personality", fields: [["publicFace.personality.traits", "Traits"], ["publicFace.personality.mannerisms", "Mannerisms"], ["publicFace.personality.speechStyle", "Speech style"]] },
+    { key: "publicFace.background", title: "Background", fields: [["publicFace.background", "Background"]] },
+    { key: "innerLife.secrets", title: "Secrets", fields: [["innerLife.secrets", "Secrets"]], hidden: !isOwner },
+    { key: "innerLife.goals", title: "Goals", fields: [["innerLife.goals", "Goals"]], hidden: !isOwner },
+    { key: "innerLife.fears", title: "Fears", fields: [["innerLife.fears", "Fears"]], hidden: !isOwner },
+    { key: "innerLife.hooks", title: "Hooks", fields: [["innerLife.hooks", "Hooks"]], hidden: !isOwner },
   ].filter((group) => !group.hidden);
 }
 
 function sectionDataForGroup(profile, groupKey) {
   return clone(profile?.[groupKey] ?? null);
+}
+
+function buildAiWorkflow(state, onRefresh) {
+  return {
+    campaignId: state.campaignId,
+    sectionKey: "structuredProfile",
+    sectionTitle: "Character Profile",
+    sheet: clone(state.sheet || {}),
+    structuredProfile: clone(state.sheet?.structuredProfile || structuredProfileFallback(null)),
+    sectionSnapshot: clone(state.sheet?.structuredProfile || structuredProfileFallback(null)),
+    currentDraft: null,
+    onRefresh,
+    getStructuredProfile: () => clone(state.sheet?.structuredProfile || structuredProfileFallback(null)),
+    getDialogContext: () => [],
+  };
 }
 
 function bindSectionWorkflowListeners(panel, shell) {
@@ -94,21 +109,21 @@ function bindSectionWorkflowListeners(panel, shell) {
       if (status) status.textContent = "Open the session first before reviewing a candidate.";
       return;
     }
-    const baseline = clone(typeof workflow.getSectionData === "function" ? workflow.getSectionData() : {});
+    const baseline = clone(typeof workflow.getStructuredProfile === "function" ? workflow.getStructuredProfile() : structuredProfileFallback(null));
     panel.candidateReviewText = JSON.stringify(baseline ?? {}, null, 2);
     const draftResponse = await shell.api(`/api/campaigns/${workflow.campaignId}/ai/sessions/${session.id}/drafts`, {
       method: "POST",
       operation: "create-ai-session-draft",
-        body: JSON.stringify({
-          clientRequestId: `${Date.now()}`,
-          sectionKey: workflow.sectionKey,
-          sectionPath: workflow.sectionKey,
-          sectionData: baseline,
-          sectionSnapshot: baseline,
-          dialogContext: typeof workflow.getDialogContext === "function" ? workflow.getDialogContext() : [],
-          structuredInput: {
-            sectionKind: workflow.sectionKey,
-            sectionData: baseline,
+      body: JSON.stringify({
+        clientRequestId: `${Date.now()}`,
+        sectionKey: "structuredProfile",
+        sectionPath: "structuredProfile",
+        sectionData: baseline,
+        sectionSnapshot: baseline,
+        dialogContext: typeof workflow.getDialogContext === "function" ? workflow.getDialogContext() : [],
+        structuredInput: {
+          sectionKind: "structuredProfile",
+          structuredProfile: baseline,
           characterSummary: previewProfile(workflow.sheet),
         },
         title: `${workflow.sectionTitle} structured candidate`,
@@ -174,68 +189,6 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
   edit.setAttribute("aria-label", SECTION_ACTIONS.edit.label);
   edit.addEventListener("click", () => onRefresh({ editingSection: group.key, assistSection: "", draftProfile: clone(state.sheet?.structuredProfile || structuredProfileFallback(null)), aiDraft: null }));
   actions.appendChild(edit);
-  const ai = doc.createElement("button");
-  ai.type = "button";
-  ai.className = "workshop-icon-button";
-  ai.textContent = SECTION_ACTIONS.ai.icon;
-  ai.title = SECTION_ACTIONS.ai.label;
-  ai.setAttribute("aria-label", SECTION_ACTIONS.ai.label);
-  ai.addEventListener("click", async () => {
-    const draftProfile = state.draftProfile || state.sheet?.structuredProfile || structuredProfileFallback(null);
-    const sectionSnapshot = sectionDataForGroup(state.sheet?.structuredProfile || state.draftProfile || draftProfile, group.key);
-    let activeSheetId = sheetId;
-    if (!activeSheetId) {
-      const response = await shell.api(`/api/campaigns/${state.campaignId}/character-sheets`, {
-        method: "POST",
-        operation: "create-character-section-draft",
-        body: JSON.stringify({ structuredProfile: draftProfile }),
-      });
-      if (!response.ok) {
-        if (typeof shell.pageError === "function") shell.pageError(response.error?.message || "Failed to prepare AI target.");
-        const statusLine = el("status", doc);
-        if (statusLine) statusLine.textContent = response.error?.message || "Failed to prepare AI target.";
-        return;
-      }
-      activeSheetId = response.data.characterSheet?.sheetId || "";
-      onRefresh({ sheet: response.data.characterSheet, sheetId: activeSheetId });
-    }
-    onRefresh({ editingSection: "", assistSection: group.key, draftProfile: clone(draftProfile), aiDraft: null });
-    createAIConversationPanel(shell, {
-      campaignId: state.campaignId,
-      targetKind: "character-profile-section",
-      targetId: activeSheetId,
-      sectionKey: group.key,
-      mode: "text-draft-generation",
-      policyProfile: "player-character-section-discussion",
-      outputKind: "draft",
-      sectionSnapshot,
-    }, {
-      title: `${group.title} AI session`,
-      placeholder: `Discuss ${group.title.toLowerCase()}.`,
-    });
-    const panel = doc.querySelector?.("dgm-ai-conversation-panel[data-role='ai-conversation-panel']");
-    if (panel) {
-      bindSectionWorkflowListeners(panel, shell);
-      panel._sectionWorkflow = {
-        campaignId: state.campaignId,
-        sectionKey: group.key,
-        sectionTitle: group.title,
-        sheet: clone(state.sheet || {}),
-        sectionSnapshot: clone(sectionSnapshot),
-        currentDraft: null,
-        onRefresh,
-        getSectionData: () => clone(sectionSnapshot),
-        getDialogContext: () => panel.transcript.map((message) => ({
-          role: message.role,
-          text: text(message.text || message.content || ""),
-        })),
-      };
-      const currentSectionData = panel._sectionWorkflow.getSectionData();
-      panel.candidate = null;
-      panel.candidateReviewText = JSON.stringify(currentSectionData ?? {}, null, 2);
-    }
-  });
-  actions.appendChild(ai);
   header.appendChild(actions);
   card.appendChild(header);
 
@@ -347,6 +300,63 @@ function renderSectionCard(doc, shell, state, group, readOnly, onRefresh) {
   return card;
 }
 
+function renderWorkshopAiControl(doc, shell, state, onRefresh) {
+  const controls = doc.createElement("div");
+  controls.className = "workshop-ai-control";
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "workshop-icon-button";
+  button.textContent = SECTION_ACTIONS.ai.icon;
+  button.title = SECTION_ACTIONS.ai.label;
+  button.setAttribute("aria-label", SECTION_ACTIONS.ai.label);
+  button.addEventListener("click", async () => {
+    const draftProfile = state.draftProfile || state.sheet?.structuredProfile || structuredProfileFallback(null);
+    let activeSheetId = state.sheetId || state.sheet?.sheetId || "";
+    if (!activeSheetId) {
+      const response = await shell.api(`/api/campaigns/${state.campaignId}/character-sheets`, {
+        method: "POST",
+        operation: "create-character-section-draft",
+        body: JSON.stringify({ structuredProfile: draftProfile }),
+      });
+      if (!response.ok) {
+        if (typeof shell.pageError === "function") shell.pageError(response.error?.message || "Failed to prepare AI target.");
+        const statusLine = el("status", doc);
+        if (statusLine) statusLine.textContent = response.error?.message || "Failed to prepare AI target.";
+        return;
+      }
+      activeSheetId = response.data.characterSheet?.sheetId || "";
+      onRefresh({ sheet: response.data.characterSheet, sheetId: activeSheetId });
+    }
+    onRefresh({ editingSection: "", assistSection: "profile", draftProfile: clone(draftProfile), aiDraft: null });
+    createAIConversationPanel(shell, {
+      campaignId: state.campaignId,
+      targetKind: "character-profile",
+      targetId: activeSheetId,
+      sectionKey: "structuredProfile",
+      mode: "text-draft-generation",
+      policyProfile: "player-character-section-discussion",
+      outputKind: "draft",
+      sectionSnapshot: state.sheet?.structuredProfile || structuredProfileFallback(null),
+    }, {
+      title: "Character Profile AI session",
+      placeholder: "Discuss the whole character profile.",
+    });
+    const panel = doc.querySelector?.("dgm-ai-conversation-panel[data-role='ai-conversation-panel']");
+    if (panel) {
+      bindSectionWorkflowListeners(panel, shell);
+      panel._sectionWorkflow = buildAiWorkflow(state, onRefresh);
+      panel._sectionWorkflow.getDialogContext = () => panel.transcript.map((message) => ({
+        role: message.role,
+        text: text(message.text || message.content || ""),
+      }));
+      panel.candidate = null;
+      panel.candidateReviewText = JSON.stringify((panel._sectionWorkflow.getStructuredProfile?.() || {}) ?? {}, null, 2);
+    }
+  });
+  controls.appendChild(button);
+  return controls;
+}
+
 async function loadWorkspace(shell, campaignId, kind, onRefresh) {
   const response = await shell.api(`/api/campaigns/${campaignId}`, { operation: "load-campaign" });
   if (!response.ok) {
@@ -406,6 +416,7 @@ async function renderWorkspace(shell, kind, state, onRefresh) {
     if (kind === "player workspace") {
       const profile = structuredProfileFallback(sheet);
       const groups = sectionGroups(profile, true);
+      workshop.appendChild(renderWorkshopAiControl(doc, shell, state, onRefresh));
       for (const group of groups) workshop.appendChild(renderSectionCard(doc, shell, state, group, false, onRefresh));
       renderReadablePreview(doc, sheet || { structuredProfile: structuredProfileFallback(null) });
     } else {

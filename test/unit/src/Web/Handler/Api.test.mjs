@@ -44,16 +44,16 @@ function makeDataStore() {
     async listCredits() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async listMaterials() { return { campaign, participants: campaign.participants, brief: campaign.brief, materials: campaign.materials, assets: campaign.assets, characterSheets: campaign.characterSheets, aiDrafts: campaign.aiDrafts, events: campaign.events, credits: campaign.credits }; },
     async createAIPrepSession() { return { id: "session_1", policyProfile: "player-character-section-discussion" }; },
-    async listAIPrepSessions() { return [{ id: "session_1", targetKind: "character-profile-section", targetId: "sheet_1", sectionKey: "identity.name", status: "active" }]; },
+    async listAIPrepSessions() { return [{ id: "session_1", targetKind: "character-profile", targetId: "sheet_1", sectionKey: "structuredProfile", status: "active" }]; },
     async getAIPrepSession() { return { id: "session_1" }; },
     async listAIPrepMessages() { return [{ id: "msg_1", role: "user", text: "Hello" }]; },
     async postAIPrepMessage() { return { message: { id: "msg_1" }, run: { id: "run_1" }, responseMessage: { id: "msg_2" } }; },
     async createMaterial() { return { materialId: "mat_1" }; },
     async listCharacterSheetsView() { return [{ sheetId: "sheet_1", title: "Character", state: "draft" }]; },
-    async getCharacterSheetView() { return { sheetId: "sheet_1", state: "draft", structuredProfile: { identity: { name: "A" }, appearance: {}, personality: {}, backstory: {}, campaignIntegration: {}, mechanics: {}, publicNotes: "" } }; },
+    async getCharacterSheetView() { return { sheetId: "sheet_1", state: "draft", structuredProfile: { publicFace: { identity: { name: "A", shortDescription: "", ancestry: "", characterClass: "", role: "" }, appearance: "", personality: { traits: [], mannerisms: [], speechStyle: "" }, background: [] }, innerLife: { secrets: [], goals: [], fears: [], hooks: [] } } }; },
     async createCharacterSheet() { return { sheetId: "sheet_1", state: "draft" }; },
     async updateCharacterSheet() { return { sheetId: "sheet_1", state: "draft" }; },
-    async approveCharacterSheet() { return { sheetId: "sheet_1", state: "approved" }; },
+    async approveCharacterSheet() { return { sheetId: "sheet_1", state: "published" }; },
     async returnCharacterSheetToDraft() { return { sheetId: "sheet_1", state: "draft" }; },
     async createCharacterSheetAsset() { return { assetId: "asset_1" }; },
     async updateCharacterSheetAsset() { return { assetId: "asset_1" }; },
@@ -168,7 +168,7 @@ test("POST /api/campaigns/:campaignId/ai/sessions creates a session and message 
   context.request.method = "POST";
   context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions";
   context.request.headers["x-local-identity-id"] = "gm-1";
-  context.request = Object.assign(context.request, { async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ title: "AI", targetKind: "character-profile-section", targetId: "sheet_1", sectionKey: "identity.name", mode: "text-draft-generation", policyProfile: "player-character-section-discussion" })); } });
+  context.request = Object.assign(context.request, { async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ title: "AI", targetKind: "character-profile", targetId: "sheet_1", sectionKey: "structuredProfile", mode: "text-draft-generation", policyProfile: "player-character-section-discussion" })); } });
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
   assert.match(context.response.body, /"session"/);
@@ -177,11 +177,11 @@ test("POST /api/campaigns/:campaignId/ai/sessions creates a session and message 
 test("GET /api/campaigns/:campaignId/ai/sessions filters by target binding", async () => {
   const handler = new ApiHandler({ dataStore: makeDataStore(), eventDelivery: makeEventDelivery() });
   const context = makeContext();
-  context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions?targetKind=character-profile-section&targetId=sheet_1&sectionKey=identity.name&status=active";
+  context.request.url = "http://localhost/api/campaigns/campaign_1/ai/sessions?targetKind=character-profile&targetId=sheet_1&sectionKey=structuredProfile&status=active";
   context.request.headers["x-local-identity-id"] = "gm-1";
   await handler.handle(context);
   assert.equal(context.response.statusCode, 200);
-  assert.match(context.response.body, /"targetKind":"character-profile-section"/);
+  assert.match(context.response.body, /"targetKind":"character-profile"/);
 });
 
 test("GET /api/campaigns/:campaignId/ai/sessions/:sessionId/messages returns transcript entries", async () => {

@@ -62,7 +62,7 @@ test("campaign API supports create join brief events credits and deletion", asyn
   }
 });
 
-test("character sheet reads project draft data by role and keep private fields hidden from other players", async () => {
+test("character profile reads preserve private fields from other players", async () => {
   const port = await getFreePort();
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dnd-gm-character-"));
   process.env.DND_GM_DATA_ROOT = path.join(root, "data");
@@ -75,7 +75,7 @@ test("character sheet reads project draft data by role and keep private fields h
     res = await fetch(`http://127.0.0.1:${port}/api/campaigns`, { method: "POST", headers: { "content-type": "application/json", "x-local-identity-id": alice }, body: JSON.stringify({ title: "Workshop" }) });
     json = await res.json();
     const campaignId = json.data.campaignId;
-    res = await fetch(`http://127.0.0.1:${port}/api/campaigns/${campaignId}/character-sheets`, { method: "POST", headers: { "content-type": "application/json", "x-local-identity-id": alice }, body: JSON.stringify({ structuredProfile: { identity: { name: "Asha" }, gmHooks: "Hidden", playerIntent: { playStyle: "Support" } } }) });
+    res = await fetch(`http://127.0.0.1:${port}/api/campaigns/${campaignId}/character-sheets`, { method: "POST", headers: { "content-type": "application/json", "x-local-identity-id": alice }, body: JSON.stringify({ structuredProfile: { publicFace: { identity: { name: "Asha", shortDescription: "", ancestry: "", characterClass: "", role: "" }, appearance: "", personality: { traits: [], mannerisms: [], speechStyle: "" }, background: [] }, innerLife: { secrets: ["Hidden"], goals: ["Support"], fears: [], hooks: [] } } }) });
     json = await res.json();
     const sheetId = json.data.characterSheet.sheetId;
     res = await fetch(`http://127.0.0.1:${port}/api/identity/local`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ uuid: "c53f5c97-f2f1-4fa0-a7a8-870e5a73a2b9", nickname: "Bob" }) });
@@ -87,8 +87,7 @@ test("character sheet reads project draft data by role and keep private fields h
     res = await fetch(`http://127.0.0.1:${port}/api/campaigns/${campaignId}/character-sheets/${sheetId}`, { headers: { "x-local-identity-id": bob } });
     json = await res.json();
     assert.equal(json.ok, true);
-    assert.equal(json.data.characterSheet.structuredProfile.gmHooks, undefined);
-    assert.equal(json.data.characterSheet.structuredProfile.playerIntent, undefined);
+    assert.equal(json.data.characterSheet.structuredProfile.innerLife, undefined);
   } finally {
     child.kill("SIGTERM");
     await cleanup();
